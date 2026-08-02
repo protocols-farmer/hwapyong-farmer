@@ -130,7 +130,7 @@ export const postsController = {
 
         const uploadStream = mediaStorage.uploader.upload_stream(
           {
-            folder: "portfolio/posts",
+            folder: "hwapyong/posts",
             resource_type: "auto",
             allowed_formats: ["jpg", "jpeg", "png", "webp", "gif"],
             timeout: 60000,

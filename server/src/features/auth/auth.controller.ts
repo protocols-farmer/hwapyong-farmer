@@ -1160,7 +1160,7 @@ export const authController = {
         }
 
         const uploadStream = mediaStorage.uploader.upload_stream(
-          { folder: "portfolio" },
+          { folder: "hwapyong/profile" },
           (error, result) => {
             if (error) {
               process.stderr.write(

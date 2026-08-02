@@ -6,6 +6,7 @@ import { connectWithRetry, pool } from "./db/psql.js";
 import { connectRedis } from "./db/redis.js";
 import { verifyCloudinary } from "./db/cloudinary.js";
 import { startTokenCleanupWorker } from "./workers/tokenCleanup.js";
+
 const PORT = process.env["PORT"] || "5000";
 const HOST = process.env["HOST"] || "0.0.0.0";
 
