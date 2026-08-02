@@ -11,8 +11,12 @@ if (!connectionString) {
   process.exit(1);
 }
 
+const isProduction = process.env["NODE_ENV"] === "production";
+
 const poolConfig: pg.PoolConfig = {
   connectionString: connectionString,
+  ssl: isProduction ? { rejectUnauthorized: false } : undefined,
+
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
