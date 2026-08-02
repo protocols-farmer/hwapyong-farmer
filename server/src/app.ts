@@ -16,6 +16,7 @@ if (!ACCESS_TOKEN_SECRET || !rawAllowedOrigins) {
 }
 
 const allowedOrigins = rawAllowedOrigins.split(",").map((o) => o.trim());
+console.log("🥹  Allowed CORS origins:", allowedOrigins);
 
 export const app = async (
   req: IncomingMessage,
