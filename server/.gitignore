@@ -1,0 +1,84 @@
+#---------------------------------------------------------------------------
+# GENERAL
+#---------------------------------------------------------------------------
+
+# Operating System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / Editor specific files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Log files
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# Node Heap Snapshots, CPU, and other profiles
+*.heapdump
+*.cpuprofile
+*.prof
+# node-report files
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+#---------------------------------------------------------------------------
+# NODE & PNPM
+#---------------------------------------------------------------------------
+
+# Dependencies
+node_modules/
+
+# pnpm specific files (pnpm-lock.yaml SHOULD be committed)
+.pnp.*
+
+
+
+#---------------------------------------------------------------------------
+# TYPESCRIPT
+#---------------------------------------------------------------------------
+
+# Compiled JavaScript and declaration files output directory
+# Your tsconfig.json specifies "outDir": "dist"
+dist/
+
+# TypeScript build info file
+*.tsbuildinfo
+
+#---------------------------------------------------------------------------
+# PRISMA
+#---------------------------------------------------------------------------
+
+# Prisma sometimes creates schema backups
+prisma/schema.prisma.bak
+
+#---------------------------------------------------------------------------
+# ENVIRONMENT & SENSITIVE DATA
+#---------------------------------------------------------------------------
+
+# Environment variable files - NEVER commit actual secrets!
+.env
+.env.*
+# BUT, DO commit an example file to show required variables
+!.env.example
+
+#---------------------------------------------------------------------------
+# PROJECT SPECIFIC / RUNTIME ARTIFACTS
+#---------------------------------------------------------------------------
+
+# Local 'uploads' directory
+# For temporary local storage; production should use Cloudinary directly or persistent disks.
+uploads/
+
+# Coverage reports for testing
+coverage/
+.nyc_output/
+lcov.info
+# Ignore generated Prisma client
+/src/generated/prisma

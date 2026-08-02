@@ -1,0 +1,75 @@
+{
+  "compilerOptions": {
+    // --- Target and Libraries ---
+    "target": "ES2022",
+    "lib": ["es2022"],
+    "useDefineForClassFields": true,
+
+    // --- Modules ---
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+
+    // --- Emit ---
+    "outDir": "dist",
+    "rootDir": "./src",
+    "removeComments": true,
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    "incremental": true,
+    "noEmitOnError": true,
+
+    // --- Interoperability ---
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // --- Strictness & Code Quality ---
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "verbatimModuleSyntax": true,
+    "useUnknownInCatchVariables": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noUncheckedSideEffectImports": true,
+
+    // --- Strict Logic Checks ---
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+
+    // --- Advanced & Build Optimizations ---
+    "skipLibCheck": true,
+    "isolatedModules": true,
+
+    // --- Path Aliases ---
+    // "baseUrl": "./",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    // --- Type Acquisition ---
+    "typeRoots": ["./node_modules/@types", "./src/types"]
+  },
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "tests",
+    "**/*.spec.ts",
+    "**/*.test.ts"
+  ]
+}
