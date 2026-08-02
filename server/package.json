@@ -9,7 +9,9 @@
     "build": "tsc && tsc-alias",
     "start": "node --enable-source-maps dist/server.js",
     "db:tables": "psql -U hwapyong -d hwapyong_db -h localhost -p 5432 -W -f ./migrations/1_creating_tables.sql",
-    "db:seed": "tsx --env-file=.env src/db/seed.ts"
+    "db:tables:cloud": "dotenv -e .env -- bash -c 'psql \"$DATABASE_URL\" -f ./migrations/1_creating_tables.sql'",
+    "db:seed": "tsx --env-file=.env src/db/seed.ts",
+    "db:seed:cloud": "tsx --env-file=.env src/db/seed.ts"
   },
   "keywords": [],
   "author": "",
