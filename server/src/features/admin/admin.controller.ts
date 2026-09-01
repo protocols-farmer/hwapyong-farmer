@@ -282,33 +282,7 @@ export const adminController = {
     }
   },
 
-  // #2 fix: this endpoint used to skip auth entirely — every sibling route
-  // under /api/v1/admin/* requires a super_admin Bearer token, this one
-  // didn't, letting anyone read the configured maintenance message with no
-  // account at all. The actual maintenance GATE in app.ts reads Redis
-  // directly and never calls this endpoint, so nothing internal depended on
-  // it being open.
-  async getSettings(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const verifyResult = await verifyAccessToken(
-      req.headers.authorization,
-      ACCESS_TOKEN_SECRET as string,
-      "getSettings",
-    );
-    if (!verifyResult.ok) {
-      res.statusCode = verifyResult.statusCode;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify(verifyResult.body));
-      return;
-    }
-    const decoded = verifyResult.decoded;
-
-    if (decoded.role !== "super_admin") {
-      res.statusCode = 403;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Forbidden: Super Admin only." }));
-      return;
-    }
-
+  async getSettings(_req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       const result = await adminService.getSystemSettings();
       res.statusCode = 200;
