@@ -8,7 +8,7 @@ export const postsService = {
       const offset = (page - 1) * limit;
       const countSql = "SELECT COUNT(*) FROM posts;";
       const dataSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar 
+        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
         FROM posts p
         JOIN users u ON p.author_id = u.id
         ORDER BY p.created_at DESC 
@@ -35,7 +35,7 @@ export const postsService = {
   async getPost(postId: string) {
     try {
       const sql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar 
+        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
         FROM posts p
         JOIN users u ON p.author_id = u.id
         WHERE p.id = $1;
@@ -82,7 +82,7 @@ export const postsService = {
       const newPostId = insertResult.rows[0].id;
 
       const fullPostSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar 
+        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
         FROM posts p
         JOIN users u ON p.author_id = u.id
         WHERE p.id = $1;
@@ -114,7 +114,7 @@ export const postsService = {
       const updatedPostId = updateResult.rows[0].id;
 
       const fullPostSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar 
+        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
         FROM posts p
         JOIN users u ON p.author_id = u.id
         WHERE p.id = $1;
@@ -151,91 +151,111 @@ export const postsService = {
     sortOrder: string = "DESC",
     authorId: string | null = null,
   ) {
+    const offset = (page - 1) * limit;
+    const hasSearchQuery = !!(searchQuery && searchQuery.trim() !== "");
+
+    let whereClauses: string[] = [];
+    let queryValues: any[] = [];
+    let paramIndex = 1;
+
+    if (authorId && authorId.trim() !== "") {
+      whereClauses.push(`p.author_id = $${paramIndex}`);
+      queryValues.push(authorId.trim());
+      paramIndex++;
+    }
+
+    if (hasSearchQuery) {
+      whereClauses.push(
+        `(p.search_vector @@ websearch_to_tsquery('english', $${paramIndex}) OR $${paramIndex} <% p.title)`,
+      );
+      queryValues.push((searchQuery as string).trim());
+      paramIndex++;
+    }
+
+    if (category && category !== "all" && category.trim() !== "") {
+      whereClauses.push(`p.category = $${paramIndex}`);
+      queryValues.push(category.trim());
+      paramIndex++;
+    }
+
+    if (subcategory && subcategory.trim() !== "") {
+      whereClauses.push(`p.subcategory = $${paramIndex}`);
+      queryValues.push(subcategory.trim());
+      paramIndex++;
+    }
+
+    if (tagsArray && tagsArray.length > 0) {
+      whereClauses.push(`p.tags && $${paramIndex}::text[]`);
+      queryValues.push(tagsArray);
+      paramIndex++;
+    }
+
+    let whereString = "";
+    if (whereClauses.length > 0) {
+      whereString = "WHERE " + whereClauses.join(" AND ");
+    }
+
+    let orderString = "ORDER BY p.created_at DESC";
+    if (sortBy === "title") {
+      if (sortOrder === "ASC") {
+        orderString = "ORDER BY p.title ASC";
+      } else {
+        orderString = "ORDER BY p.title DESC";
+      }
+    } else {
+      if (sortOrder === "ASC") {
+        orderString = "ORDER BY p.created_at ASC";
+      } else {
+        orderString = "ORDER BY p.created_at DESC";
+      }
+    }
+
+    const countSql = `
+      SELECT COUNT(*) 
+      FROM posts p
+      ${whereString};
+    `;
+
+    const dataSql = `
+      SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
+      FROM posts p
+      JOIN users u ON p.author_id = u.id
+      ${whereString}
+      ${orderString}
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
+    `;
+
+    const finalValues = [...queryValues, limit, offset];
+
+    // SET LOCAL only works inside a transaction, and it's only needed for the
+    // trigram similarity threshold used by text search. Most filter requests
+    // (category/tag/sort with no search text) don't need a transaction or a
+    // dedicated client at all, so we skip that overhead unless there's an
+    // actual search query to run.
+    if (!hasSearchQuery) {
+      try {
+        const [countRes, dataRes] = await Promise.all([
+          pool.query(countSql, queryValues),
+          pool.query(dataSql, finalValues),
+        ]);
+
+        return {
+          rows: dataRes.rows,
+          totalCount: parseInt(countRes.rows[0]?.count || "0", 10),
+        };
+      } catch (err: any) {
+        process.stderr.write(
+          `[postsService.getFilteredPosts] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
+        );
+        throw err;
+      }
+    }
+
     const client = await pool.connect();
 
     try {
-      const offset = (page - 1) * limit;
-
       await client.query("BEGIN;");
-
-      if (searchQuery && searchQuery.trim() !== "") {
-        await client.query(
-          "SET LOCAL pg_trgm.word_similarity_threshold = 0.3;",
-        );
-      }
-
-      let whereClauses: string[] = [];
-      let queryValues: any[] = [];
-      let paramIndex = 1;
-
-      if (authorId && authorId.trim() !== "") {
-        whereClauses.push(`p.author_id = $${paramIndex}`);
-        queryValues.push(authorId.trim());
-        paramIndex++;
-      }
-
-      if (searchQuery && searchQuery.trim() !== "") {
-        whereClauses.push(
-          `(p.search_vector @@ websearch_to_tsquery('english', $${paramIndex}) OR $${paramIndex} <% p.title)`,
-        );
-        queryValues.push(searchQuery.trim());
-        paramIndex++;
-      }
-
-      if (category && category !== "all" && category.trim() !== "") {
-        whereClauses.push(`p.category = $${paramIndex}`);
-        queryValues.push(category.trim());
-        paramIndex++;
-      }
-
-      if (subcategory && subcategory.trim() !== "") {
-        whereClauses.push(`p.subcategory = $${paramIndex}`);
-        queryValues.push(subcategory.trim());
-        paramIndex++;
-      }
-
-      if (tagsArray && tagsArray.length > 0) {
-        whereClauses.push(`p.tags && $${paramIndex}::text[]`);
-        queryValues.push(tagsArray);
-        paramIndex++;
-      }
-
-      let whereString = "";
-      if (whereClauses.length > 0) {
-        whereString = "WHERE " + whereClauses.join(" AND ");
-      }
-
-      let orderString = "ORDER BY p.created_at DESC";
-      if (sortBy === "title") {
-        if (sortOrder === "ASC") {
-          orderString = "ORDER BY p.title ASC";
-        } else {
-          orderString = "ORDER BY p.title DESC";
-        }
-      } else {
-        if (sortOrder === "ASC") {
-          orderString = "ORDER BY p.created_at ASC";
-        } else {
-          orderString = "ORDER BY p.created_at DESC";
-        }
-      }
-
-      const countSql = `
-        SELECT COUNT(*) 
-        FROM posts p
-        ${whereString};
-      `;
-
-      const dataSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar 
-        FROM posts p
-        JOIN users u ON p.author_id = u.id
-        ${whereString}
-        ${orderString}
-        LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
-      `;
-
-      const finalValues = [...queryValues, limit, offset];
+      await client.query("SET LOCAL pg_trgm.word_similarity_threshold = 0.3;");
 
       const [countRes, dataRes] = await Promise.all([
         client.query(countSql, queryValues),
@@ -269,7 +289,7 @@ export const postsService = {
         WHERE p.category = 'projects' AND p.subcategory = 'serious' AND u.role = 'super_admin';
       `;
       const dataSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar 
+        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
         FROM posts p
         JOIN users u ON p.author_id = u.id
         WHERE p.category = 'projects' AND p.subcategory = 'serious' AND u.role = 'super_admin'
@@ -303,7 +323,7 @@ export const postsService = {
         WHERE p.category = 'diary' AND u.role = 'super_admin';
       `;
       const dataSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar 
+        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
         FROM posts p
         JOIN users u ON p.author_id = u.id
         WHERE p.category = 'diary' AND u.role = 'super_admin'
@@ -373,6 +393,24 @@ export const postsService = {
           ORDER BY tag ASC;
         `;
         values.push(category.trim());
+      } else if (!hasCat && hasSub && hasAuth) {
+        // Subcategory without a category is meaningless (subcategory only
+        // exists under "projects"), so we drop it — but we still keep the
+        // author scoping, otherwise a "mine" tag request would silently leak
+        // every other user's tags instead of just this user's.
+        sql = `
+          SELECT DISTINCT unnest(tags) AS tag 
+          FROM posts 
+          WHERE author_id = $1
+          ORDER BY tag ASC;
+        `;
+        values.push(authorId.trim());
+      } else if (!hasCat && hasSub && !hasAuth) {
+        sql = `
+          SELECT DISTINCT unnest(tags) AS tag 
+          FROM posts 
+          ORDER BY tag ASC;
+        `;
       } else if (!hasCat && !hasSub && hasAuth) {
         sql = `
           SELECT DISTINCT unnest(tags) AS tag 

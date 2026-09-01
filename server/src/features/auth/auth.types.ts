@@ -23,8 +23,8 @@ export interface RefreshTokenSession {
   user_agent: string | null;
   ip_address: string | null;
   created_at: string;
+  session_created_at: string;
 }
-
 export interface JWTPayload {
   id: string;
   username: string;

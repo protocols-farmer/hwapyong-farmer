@@ -134,14 +134,7 @@ export default function SecurityBans({ showToast }: Props) {
                     className="border-b-3 border-double border-destructive/30 hover:bg-destructive/10 transition-colors text-foreground"
                   >
                     <td className="p-3 font-bold">
-                      <span
-                        className={cn(
-                          "px-2 py-0.5 border-2 border-double",
-                          ban.type === "IP"
-                            ? "border-primary text-primary"
-                            : "border-destructive text-destructive",
-                        )}
-                      >
+                      <span className="px-2 py-0.5 border-2 border-double border-primary text-primary">
                         {ban.type}
                       </span>
                     </td>

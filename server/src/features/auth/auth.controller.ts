@@ -16,6 +16,8 @@ import type {
 } from "./auth.types.js";
 import { mediaStorage } from "../../db/cloudinary.js";
 import busboy from "busboy";
+import { verifyAccessToken } from "./verifyAccessToken.js";
+import { invalidateUserAccessTokens } from "./sessionInvalidation.js";
 
 const ACCESS_TOKEN_SECRET = process.env["ACCESS_TOKEN_SECRET"];
 const ACCESS_TOKEN_EXPIRY_MINUTES = parseInt(
@@ -26,17 +28,38 @@ const REFRESH_TOKEN_EXPIRY_MINUTES = parseInt(
   process.env["REFRESH_TOKEN_EXPIRY_MINUTES"] || "10080",
   10,
 );
+// #10 fix: an absolute ceiling on how long a single browser session can
+// keep renewing itself via refresh-token rotation, regardless of activity.
+// Without this, a session that gets used at least once every
+// REFRESH_TOKEN_EXPIRY_MINUTES window rotates forever and never forces a
+// fresh login.
+const ABSOLUTE_SESSION_CEILING_DAYS = parseInt(
+  process.env["ABSOLUTE_SESSION_CEILING_DAYS"] || "30",
+  10,
+);
 
 if (
   !ACCESS_TOKEN_SECRET ||
   !ACCESS_TOKEN_EXPIRY_MINUTES ||
-  !REFRESH_TOKEN_EXPIRY_MINUTES
+  !REFRESH_TOKEN_EXPIRY_MINUTES ||
+  !ABSOLUTE_SESSION_CEILING_DAYS
 ) {
   process.stderr.write(
     "FATAL ERROR: ACCESS_TOKEN_SECRET OR ACCESS_TOKEN_EXPIRY_MINUTES OR REFRESH_TOKEN_EXPIRY_MINUTES is not defined.\n",
   );
   process.exit(1);
 }
+
+const rawAllowedOriginsForCsrfCheck = process.env["CLIENT_URL"];
+if (!rawAllowedOriginsForCsrfCheck) {
+  process.stderr.write(
+    "FATAL ERROR: CLIENT_URL is not defined in environment variables.\n",
+  );
+  process.exit(1);
+}
+const allowedOriginsForCsrfCheck = rawAllowedOriginsForCsrfCheck
+  .split(",")
+  .map((o) => o.trim());
 
 export const authController = {
   async banCheck(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -98,6 +121,19 @@ export const authController = {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "Username must be 3-20 characters." }));
+        return;
+      }
+
+      const usernameCharacterAllowList = /^[a-zA-Z0-9_]+$/;
+      if (!usernameCharacterAllowList.test(username)) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            error:
+              "Username can only contain letters, numbers, and underscores.",
+          }),
+        );
         return;
       }
 
@@ -172,7 +208,7 @@ export const authController = {
 
       const isProd = process.env["NODE_ENV"] !== "development";
       const maxAgeSeconds = REFRESH_TOKEN_EXPIRY_MINUTES * 60;
-      const cookieHeader = `refreshToken=${rawRefreshToken}; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}`;
+      const cookieHeader = `refreshToken=${rawRefreshToken}; HttpOnly; ${isProd ? "SameSite=None; Secure;" : "SameSite=Lax;"} Path=/; Max-Age=${maxAgeSeconds}`;
 
       res.statusCode = 201;
       res.setHeader("Set-Cookie", cookieHeader);
@@ -185,8 +221,8 @@ export const authController = {
             id: newUser.id,
             username: newUser.username,
             role: newUser.role,
-            profile_title: null,
-            avatar_url: null,
+            profile_title: newUser.profile_title,
+            avatar_url: newUser.avatar_url,
           },
           accessToken,
         }),
@@ -254,20 +290,15 @@ export const authController = {
           ip !== "unknown_ip"
             ? await redisClient.ttl(`ratelimit:login:ban:ip:${ip}`)
             : 0;
-        const userBan = await redisClient.ttl(
-          `ratelimit:login:ban:user:${username}`,
-        );
 
-        const highestBan = Math.max(ipBan, userBan);
-
-        if (highestBan > 0) {
+        if (ipBan > 0) {
           res.statusCode = 429;
           res.setHeader("Content-Type", "application/json");
-          res.setHeader("Retry-After", String(highestBan));
+          res.setHeader("Retry-After", String(ipBan));
           res.end(
             JSON.stringify({
               error: "Too many attempts. You are temporarily banned.",
-              remainingSeconds: highestBan,
+              remainingSeconds: ipBan,
             }),
           );
           return;
@@ -298,29 +329,6 @@ export const authController = {
             await redisClient.set(`ratelimit:login:ban:ip:${ip}`, "true", {
               ex: banTime,
             });
-            isBanned = true;
-            maxBanTime = Math.max(maxBanTime, banTime);
-          }
-        }
-
-        if (username) {
-          const userFailCount = await redisClient.incr(
-            `ratelimit:login:fail:user:${username}`,
-          );
-          if (userFailCount === 1)
-            await redisClient.expire(
-              `ratelimit:login:fail:user:${username}`,
-              86400,
-            );
-          if (userFailCount >= 5) {
-            let banTime = 900;
-            if (userFailCount === 6) banTime = 1800;
-            if (userFailCount >= 7) banTime = 3600;
-            await redisClient.set(
-              `ratelimit:login:ban:user:${username}`,
-              "true",
-              { ex: banTime },
-            );
             isBanned = true;
             maxBanTime = Math.max(maxBanTime, banTime);
           }
@@ -454,8 +462,6 @@ export const authController = {
             await redisClient.del(`ratelimit:login:fail:ip:${ip}`);
             await redisClient.del(`ratelimit:login:ban:ip:${ip}`);
           }
-          await redisClient.del(`ratelimit:login:fail:user:${username}`);
-          await redisClient.del(`ratelimit:login:ban:user:${username}`);
         } catch (e) {
           process.stderr.write(
             `[login] Rate limiter clear error: ${(e as Error).message}\nStack: ${(e as Error).stack}\n`,
@@ -465,7 +471,7 @@ export const authController = {
 
       const isProd = process.env["NODE_ENV"] !== "development";
       const maxAgeSeconds = REFRESH_TOKEN_EXPIRY_MINUTES * 60;
-      const cookieHeader = `refreshToken=${rawRefreshToken}; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}`;
+      const cookieHeader = `refreshToken=${rawRefreshToken}; HttpOnly; ${isProd ? "SameSite=None; Secure;" : "SameSite=Lax;"} Path=/; Max-Age=${maxAgeSeconds}`;
 
       res.statusCode = 200;
       res.setHeader("Set-Cookie", cookieHeader);
@@ -509,6 +515,20 @@ export const authController = {
   },
 
   async refresh(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const requestOrigin = req.headers.origin || "";
+    if (!allowedOriginsForCsrfCheck.includes(requestOrigin)) {
+      process.stderr.write(
+        `[refresh] Rejected — origin '${requestOrigin}' not in allowed list.\n`,
+      );
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Origin not allowed." }));
+      return;
+    }
+
+    const isProdForCookie = process.env["NODE_ENV"] !== "development";
+    const clearCookieHeader = `refreshToken=; HttpOnly; ${isProdForCookie ? "SameSite=None; Secure;" : "SameSite=Lax;"} Path=/; Max-Age=0`;
+
     let incomingRefreshToken = "";
     if (req.headers.cookie) {
       const cookies = req.headers.cookie.split(";");
@@ -557,10 +577,7 @@ export const authController = {
         await authService.revokeEntireTokenFamily(session.user_id);
 
         res.statusCode = 401;
-        res.setHeader(
-          "Set-Cookie",
-          `refreshToken=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
-        );
+        res.setHeader("Set-Cookie", clearCookieHeader);
         res.setHeader("Content-Type", "application/json");
         res.end(
           JSON.stringify({
@@ -574,14 +591,34 @@ export const authController = {
 
       if (new Date(session.expires_at).getTime() < Date.now()) {
         res.statusCode = 401;
-        res.setHeader(
-          "Set-Cookie",
-          `refreshToken=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
-        );
+        res.setHeader("Set-Cookie", clearCookieHeader);
         res.setHeader("Content-Type", "application/json");
         res.end(
           JSON.stringify({
             error: "Refresh token expired. Please log in again.",
+          }),
+        );
+        return;
+      }
+
+      const sessionAgeMs =
+        Date.now() - new Date(session.session_created_at).getTime();
+      const absoluteCeilingMs =
+        ABSOLUTE_SESSION_CEILING_DAYS * 24 * 60 * 60 * 1000;
+
+      if (sessionAgeMs > absoluteCeilingMs) {
+        process.stderr.write(
+          `[refresh] Session exceeded absolute ceiling of ${ABSOLUTE_SESSION_CEILING_DAYS} days for user=${session.user_id}. Forcing re-login.\n`,
+        );
+        await authService.revokeEntireTokenFamily(session.user_id);
+        res.statusCode = 401;
+        res.setHeader("Set-Cookie", clearCookieHeader);
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            error:
+              "Session expired after reaching its maximum lifetime. Please log in again.",
+            code: "ABSOLUTE_SESSION_CEILING_REACHED",
           }),
         );
         return;
@@ -592,10 +629,7 @@ export const authController = {
 
       if (!user) {
         res.statusCode = 401;
-        res.setHeader(
-          "Set-Cookie",
-          `refreshToken=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
-        );
+        res.setHeader("Set-Cookie", clearCookieHeader);
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "User no longer exists." }));
         return;
@@ -625,6 +659,7 @@ export const authController = {
         userAgent,
         ip,
         session.id,
+        new Date(session.session_created_at),
       );
 
       const payload: JWTPayload = {
@@ -637,9 +672,8 @@ export const authController = {
         expiresIn: `${ACCESS_TOKEN_EXPIRY_MINUTES}m`,
       });
 
-      const isProd = process.env["NODE_ENV"] !== "development";
       const maxAgeSeconds = REFRESH_TOKEN_EXPIRY_MINUTES * 60;
-      const cookieHeader = `refreshToken=${newRawRefreshToken}; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}`;
+      const cookieHeader = `refreshToken=${newRawRefreshToken}; HttpOnly; ${isProdForCookie ? "SameSite=None; Secure;" : "SameSite=Lax;"} Path=/; Max-Age=${maxAgeSeconds}`;
 
       res.statusCode = 200;
       res.setHeader("Set-Cookie", cookieHeader);
@@ -670,6 +704,17 @@ export const authController = {
   },
 
   async logout(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const requestOrigin = req.headers.origin || "";
+    if (!allowedOriginsForCsrfCheck.includes(requestOrigin)) {
+      process.stderr.write(
+        `[logout] Rejected — origin '${requestOrigin}' not in allowed list.\n`,
+      );
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Origin not allowed." }));
+      return;
+    }
+
     let incomingRefreshToken = "";
     if (req.headers.cookie) {
       const cookies = req.headers.cookie.split(";");
@@ -700,7 +745,7 @@ export const authController = {
     res.statusCode = 200;
     res.setHeader(
       "Set-Cookie",
-      `refreshToken=; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Strict; Path=/; Max-Age=0`,
+      `refreshToken=; HttpOnly; ${isProd ? "SameSite=None; Secure;" : "SameSite=Lax;"} Path=/; Max-Age=0`,
     );
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ message: "Logged out successfully" }));
@@ -710,49 +755,18 @@ export const authController = {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
-
-    const token = authHeader.split(" ")[1];
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        token as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-      if (decoded.token_use !== "access") throw new Error("Invalid token type");
-    } catch (err) {
-      const jwtErrName = (err as Error)?.name;
-      const jwtErrMsg = (err as Error)?.message || "";
-      const isExpired = jwtErrName === "TokenExpiredError";
-      const isInvalidSignature =
-        jwtErrName === "JsonWebTokenError" ||
-        jwtErrMsg === "Invalid token type";
-      process.stderr.write(
-        `[changePassword] JWT Verify Error name=${jwtErrName} expired=${isExpired} invalid=${isInvalidSignature}: ${jwtErrMsg}\n`,
-      );
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "changePassword",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          error: isExpired
-            ? "Access token expired. Please refresh and retry."
-            : isInvalidSignature
-              ? "Access token is invalid or tampered. Please log in again."
-              : "Unauthorized.",
-          code: isExpired
-            ? "TOKEN_EXPIRED"
-            : isInvalidSignature
-              ? "TOKEN_INVALID"
-              : "AUTH_UNKNOWN",
-        }),
-      );
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
+    const decoded = verifyResult.decoded;
 
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const targetId = url.searchParams.get("id") || decoded.id;
@@ -796,8 +810,15 @@ export const authController = {
         return;
       }
 
-      const userResult = await authService.findUserById(targetId);
+      const userResult =
+        await authService.findUserByIdWithPasswordHash(targetId);
       const user = userResult.rows[0] as User;
+
+      if (!user) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: "Target user not found." }));
+        return;
+      }
 
       if (decoded.role !== "super_admin") {
         if (
@@ -814,6 +835,7 @@ export const authController = {
       await authService.updatePassword(newHash, targetId);
 
       await authService.deleteAllUserRefreshTokens(targetId);
+      await invalidateUserAccessTokens(targetId);
 
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
@@ -836,49 +858,18 @@ export const authController = {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
-
-    const token = authHeader.split(" ")[1];
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        token as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-      if (decoded.token_use !== "access") throw new Error("Invalid token type");
-    } catch (err) {
-      const jwtErrName = (err as Error)?.name;
-      const jwtErrMsg = (err as Error)?.message || "";
-      const isExpired = jwtErrName === "TokenExpiredError";
-      const isInvalidSignature =
-        jwtErrName === "JsonWebTokenError" ||
-        jwtErrMsg === "Invalid token type";
-      process.stderr.write(
-        `[updateAccount] JWT Verify Error name=${jwtErrName} expired=${isExpired} invalid=${isInvalidSignature}: ${jwtErrMsg}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "updateAccount",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          error: isExpired
-            ? "Access token expired. Please refresh and retry."
-            : isInvalidSignature
-              ? "Access token is invalid or tampered. Please log in again."
-              : "Unauthorized.",
-          code: isExpired
-            ? "TOKEN_EXPIRED"
-            : isInvalidSignature
-              ? "TOKEN_INVALID"
-              : "AUTH_UNKNOWN",
-        }),
-      );
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
+    const decoded = verifyResult.decoded;
 
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const targetId = url.searchParams.get("id") || decoded.id;
@@ -892,7 +883,6 @@ export const authController = {
     let body: UpdateAccountDTO;
     try {
       body = (await json(req)) as UpdateAccountDTO;
-      console.log("2. CONTROLLER RECEIVED BODY:", body);
     } catch (err) {
       process.stderr.write(
         `[updateAccount] JSON Parse Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
@@ -905,7 +895,8 @@ export const authController = {
     try {
       const { username, profileTitle, avatarUrl } = body;
 
-      const imageExtensions = /\.(jpeg|jpg|gif|png|webp|svg)(\?.*)?(#.*)?$/i;
+      const imageExtensions =
+        /\.(jpeg|jpg|gif|png|webp|avif|svg)(\?.*)?(#.*)?$/i;
 
       if (username !== undefined && username !== null) {
         const trimmedUser = username.trim();
@@ -913,6 +904,18 @@ export const authController = {
           res.statusCode = 400;
           res.end(
             JSON.stringify({ error: "Username must be 3-20 characters." }),
+          );
+          return;
+        }
+
+        const usernameCharacterAllowList = /^[a-zA-Z0-9_]+$/;
+        if (!usernameCharacterAllowList.test(trimmedUser)) {
+          res.statusCode = 400;
+          res.end(
+            JSON.stringify({
+              error:
+                "Username can only contain letters, numbers, and underscores.",
+            }),
           );
           return;
         }
@@ -970,12 +973,13 @@ export const authController = {
         }
       }
 
+      const avatarUrlProvided = avatarUrl !== undefined;
       let finalAvatarUrl: string | null = null;
       if (avatarUrl) {
         finalAvatarUrl = avatarUrl.trim();
       }
 
-      if (username || profileTitle !== undefined || finalAvatarUrl !== null) {
+      if (username || profileTitle !== undefined || avatarUrlProvided) {
         try {
           await authService.updateUser(
             username ? username.trim() : null,
@@ -985,6 +989,7 @@ export const authController = {
                 : profileTitle.trim()
               : null,
             finalAvatarUrl,
+            avatarUrlProvided,
             targetId,
           );
         } catch (err) {
@@ -1035,11 +1040,9 @@ export const authController = {
         const safeUser = {
           id: user.id,
           username: user.username,
+          role: user.role,
           profile_title: user.profile_title,
           avatar_url: user.avatar_url,
-          role: user.role,
-          created_at: user.created_at,
-          updated_at: user.updated_at,
         };
 
         res.statusCode = 200;
@@ -1077,49 +1080,18 @@ export const authController = {
   },
 
   async uploadAvatar(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
-
-    const token = authHeader.split(" ")[1];
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        token as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-      if (decoded.token_use !== "access") throw new Error("Invalid token type");
-    } catch (err) {
-      const jwtErrName = (err as Error)?.name;
-      const jwtErrMsg = (err as Error)?.message || "";
-      const isExpired = jwtErrName === "TokenExpiredError";
-      const isInvalidSignature =
-        jwtErrName === "JsonWebTokenError" ||
-        jwtErrMsg === "Invalid token type";
-      process.stderr.write(
-        `[uploadAvatar] JWT Verify Error name=${jwtErrName} expired=${isExpired} invalid=${isInvalidSignature}: ${jwtErrMsg}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "uploadAvatar",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          error: isExpired
-            ? "Access token expired. Please refresh and retry."
-            : isInvalidSignature
-              ? "Access token is invalid or tampered. Please log in again."
-              : "Unauthorized.",
-          code: isExpired
-            ? "TOKEN_EXPIRED"
-            : isInvalidSignature
-              ? "TOKEN_INVALID"
-              : "AUTH_UNKNOWN",
-        }),
-      );
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
+    const decoded = verifyResult.decoded;
 
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const targetId = url.searchParams.get("id") || decoded.id;
@@ -1130,9 +1102,14 @@ export const authController = {
       return;
     }
 
+    const MAX_AVATAR_UPLOAD_BYTES = 5 * 1024 * 1024;
+
     let bb;
     try {
-      bb = busboy({ headers: req.headers });
+      bb = busboy({
+        headers: req.headers,
+        limits: { fileSize: MAX_AVATAR_UPLOAD_BYTES },
+      });
     } catch (err) {
       process.stderr.write(
         `[uploadAvatar] Busboy Initialization Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
@@ -1146,6 +1123,22 @@ export const authController = {
 
     bb.on("file", (_name, file, info) => {
       fileFound = true;
+      let fileTooLarge = false;
+
+      file.on("limit", () => {
+        fileTooLarge = true;
+        process.stderr.write(
+          `[uploadAvatar] File exceeded max size of ${MAX_AVATAR_UPLOAD_BYTES} bytes. Aborting upload.\n`,
+        );
+        if (!res.headersSent) {
+          res.statusCode = 413;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({ error: "Image exceeds the 5MB size limit." }),
+          );
+        }
+      });
+
       try {
         const { mimeType } = info;
 
@@ -1162,6 +1155,13 @@ export const authController = {
         const uploadStream = mediaStorage.uploader.upload_stream(
           { folder: "hwapyong/profile" },
           (error, result) => {
+            if (fileTooLarge) {
+              process.stderr.write(
+                `[uploadAvatar] Discarding Cloudinary result for oversized upload.\n`,
+              );
+              return;
+            }
+
             if (error) {
               process.stderr.write(
                 `[uploadAvatar] Cloudinary Upload Stream Error: ${error.message}\n`,
@@ -1248,49 +1248,18 @@ export const authController = {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
-
-    const token = authHeader.split(" ")[1];
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        token as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-      if (decoded.token_use !== "access") throw new Error("Invalid token type");
-    } catch (err) {
-      const jwtErrName = (err as Error)?.name;
-      const jwtErrMsg = (err as Error)?.message || "";
-      const isExpired = jwtErrName === "TokenExpiredError";
-      const isInvalidSignature =
-        jwtErrName === "JsonWebTokenError" ||
-        jwtErrMsg === "Invalid token type";
-      process.stderr.write(
-        `[deleteAccount] JWT Verify Error name=${jwtErrName} expired=${isExpired} invalid=${isInvalidSignature}: ${jwtErrMsg}\n`,
-      );
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "deleteAccount",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          error: isExpired
-            ? "Access token expired. Please refresh and retry."
-            : isInvalidSignature
-              ? "Access token is invalid or tampered. Please log in again."
-              : "Unauthorized.",
-          code: isExpired
-            ? "TOKEN_EXPIRED"
-            : isInvalidSignature
-              ? "TOKEN_INVALID"
-              : "AUTH_UNKNOWN",
-        }),
-      );
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
+    const decoded = verifyResult.decoded;
 
     const url = new URL(req.url!, `http://${req.headers.host}`);
     const targetId = url.searchParams.get("id") || decoded.id;
@@ -1306,8 +1275,37 @@ export const authController = {
       return;
     }
 
+    const DEFAULT_AVATAR_URL =
+      "https://res.cloudinary.com/dhr9zmb3i/image/upload/v1782116959/portfolio/p8f5k0lhoukdzptxy6fj.jpg";
+
     try {
+      const targetUserResult = await authService.findUserById(targetId);
+      const targetUser = targetUserResult.rows[0] as User | undefined;
+
       await authService.deleteUser(targetId);
+      await invalidateUserAccessTokens(targetId);
+
+      if (
+        targetUser &&
+        targetUser.avatar_url &&
+        targetUser.avatar_url !== DEFAULT_AVATAR_URL
+      ) {
+        try {
+          const avatarUrlParts = targetUser.avatar_url.split("/upload/");
+          const avatarUrlAfterUpload = avatarUrlParts[1];
+          if (avatarUrlParts.length === 2 && avatarUrlAfterUpload) {
+            const afterUpload = avatarUrlAfterUpload.replace(/^v\d+\//, "");
+
+            const publicId = afterUpload.replace(/\.[^/.]+$/, "");
+
+            await mediaStorage.uploader.destroy(publicId);
+          }
+        } catch (cloudinaryErr) {
+          process.stderr.write(
+            `[deleteAccount] Cloudinary avatar cleanup failed for user=${targetId}: ${(cloudinaryErr as Error).message}\nStack: ${(cloudinaryErr as Error).stack}\n`,
+          );
+        }
+      }
 
       res.statusCode = 200;
 
@@ -1315,7 +1313,7 @@ export const authController = {
         const isProd = process.env["NODE_ENV"] !== "development";
         res.setHeader(
           "Set-Cookie",
-          `refreshToken=; HttpOnly; ${isProd ? "Secure;" : ""} SameSite=Strict; Path=/; Max-Age=0`,
+          `refreshToken=; HttpOnly; ${isProd ? "SameSite=None; Secure;" : "SameSite=Lax;"} Path=/; Max-Age=0`,
         );
       }
 

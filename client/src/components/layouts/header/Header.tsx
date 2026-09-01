@@ -71,19 +71,23 @@ export default function Header() {
           )}
         </Button>
       </div>
+
       <div>
-        {mounted && isAuthenticated && (
-          <Button
-            variant="outline"
-            className="rounded-none border-double border-3"
-            asChild
-          >
-            <Link href="/posts/create-post" className="w-full">
-              create
-            </Link>
-          </Button>
-        )}
+        {mounted &&
+          isAuthenticated &&
+          (user?.role === "admin" || user?.role === "super_admin") && (
+            <Button
+              variant="outline"
+              className="rounded-none border-double border-3"
+              asChild
+            >
+              <Link href="/posts/create-post" className="w-full">
+                create
+              </Link>
+            </Button>
+          )}
       </div>
+
       <ThemeToggler />
     </header>
   );

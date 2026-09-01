@@ -16,8 +16,11 @@ export const adminApiSlice = createApi({
 
   tagTypes: ["AdminUser", "Maintenance", "AuditLog", "Bans"],
   endpoints: (builder) => ({
-    getUsers: builder.query<{ users: AdminUser[] }, void>({
-      query: () => "/admin/users",
+    getUsers: builder.query<
+      { users: AdminUser[]; total: number; page: number; totalPages: number },
+      number | void
+    >({
+      query: (page = 1) => `/admin/users?page=${page}`,
       providesTags: ["AdminUser"],
     }),
 
@@ -47,7 +50,7 @@ export const adminApiSlice = createApi({
     }),
 
     updateMaintenance: builder.mutation<
-      { message: string; settings: SystemSettings },
+      { message: string; settings: SystemSettings; redisSyncFailed: boolean },
       UpdateMaintenanceRequest
     >({
       query: (data) => ({

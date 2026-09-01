@@ -1,9 +1,11 @@
 //src/app.ts
+
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { apiRoutes } from "./features/api.routes.js";
 import { redisClient } from "./db/redis.js";
 import jwt from "jsonwebtoken";
 import type { JWTPayload } from "./features/auth/auth.types.js";
+import { isAccessTokenInvalidated } from "./features/auth/sessionInvalidation.js";
 
 const ACCESS_TOKEN_SECRET = process.env["ACCESS_TOKEN_SECRET"];
 const rawAllowedOrigins = process.env["CLIENT_URL"];
@@ -40,11 +42,6 @@ export const app = async (
   res.setHeader(
     "Strict-Transport-Security",
     "max-age=63072000; includeSubDomains; preload",
-  );
-
-  res.setHeader(
-    "Content-Security-Policy",
-    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ${rawAllowedOrigins.replace(/,/g, " ")}`,
   );
 
   res.on("finish", () => {
@@ -124,7 +121,13 @@ export const app = async (
         ) as unknown as JWTPayload;
 
         if (decoded.role === "super_admin" && decoded.token_use === "access") {
-          isSuperAdmin = true;
+          const wasInvalidated = await isAccessTokenInvalidated(
+            decoded.id,
+            decoded.iat,
+          );
+          if (!wasInvalidated) {
+            isSuperAdmin = true;
+          }
         }
       } catch (err) {
         process.stderr.write(
@@ -151,17 +154,24 @@ export const app = async (
   }
 
   if (["POST", "PATCH", "PUT"].includes(req.method || "")) {
-    const contentLength = parseInt(req.headers["content-length"] || "0", 10);
+    const requestPathOnly = (req.url || "").split("?")[0];
+    const isExemptUploadRoute =
+      requestPathOnly === "/api/v1/auth/upload-avatar" ||
+      requestPathOnly === "/api/v1/posts/upload";
 
-    if (contentLength > 1024 * 1024) {
-      res.statusCode = 413;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          error: "Payload too large. Max 1MB allowed for JSON.",
-        }),
-      );
-      return;
+    if (!isExemptUploadRoute) {
+      const contentLength = parseInt(req.headers["content-length"] || "0", 10);
+
+      if (contentLength > 1024 * 1024) {
+        res.statusCode = 413;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            error: "Payload too large. Max 1MB allowed for JSON.",
+          }),
+        );
+        return;
+      }
     }
   }
 

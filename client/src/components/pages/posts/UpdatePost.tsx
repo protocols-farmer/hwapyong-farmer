@@ -35,7 +35,9 @@ import {
 } from "@/lib/features/posts/postsApiSlice";
 import { postSchema } from "@/lib/features/posts/postsSchema";
 import { PostCategory, PostSubcategory } from "@/lib/features/posts/postsTypes";
-
+import { normalizeUrlProtocol } from "@/lib/utils/url";
+import { canManagePost } from "@/lib/utils/postPermissions";
+import AuthGuard from "@/components/shared/AuthGuard";
 const categories = [
   {
     slug: "computer-science" as PostCategory,
@@ -58,7 +60,8 @@ const projectSubcategories = [
 
 type PostFormData = z.infer<typeof postSchema>;
 
-export default function UpdatePost({ postId }: { postId: string }) {
+// NEW
+function UpdatePostContent({ postId }: { postId: string }) {
   const router = useRouter();
   const { user: currentUser } = useSelector((state: any) => state.auth);
 
@@ -134,9 +137,7 @@ export default function UpdatePost({ postId }: { postId: string }) {
     }
   }, [postData, setValue]);
 
-  const isAuthor = currentUser?.id === postData?.post.author_id;
-  const isSuperAdmin = currentUser?.role === "super_admin";
-  const isAuthorized = isAuthor || isSuperAdmin;
+  const isAuthorized = canManagePost(currentUser, postData?.post);
 
   const addTag = () => {
     const trimmed = tagInput.trim().replace(/^#/, "");
@@ -161,16 +162,20 @@ export default function UpdatePost({ postId }: { postId: string }) {
 
   const addThumbUrl = () => {
     if (thumbInput.trim()) {
-      setValue("thumbnail", thumbInput.trim(), { shouldValidate: true });
+      setValue("thumbnail", normalizeUrlProtocol(thumbInput), {
+        shouldValidate: true,
+      });
       setThumbInput("");
     }
   };
 
   const addImageUrl = () => {
     if (imageInput.trim() && postImages.length < 5) {
-      setValue("post_images", [...postImages, imageInput.trim()], {
-        shouldValidate: true,
-      });
+      setValue(
+        "post_images",
+        [...postImages, normalizeUrlProtocol(imageInput)],
+        { shouldValidate: true },
+      );
       setImageInput("");
     }
   };
@@ -218,8 +223,12 @@ export default function UpdatePost({ postId }: { postId: string }) {
         data: {
           ...data,
           subcategory: data.subcategory || null,
-          external_link: data.external_link || null,
-          github_link: data.github_link || null,
+          external_link: data.external_link
+            ? normalizeUrlProtocol(data.external_link)
+            : null,
+          github_link: data.github_link
+            ? normalizeUrlProtocol(data.github_link)
+            : null,
         },
       }).unwrap();
 
@@ -237,7 +246,7 @@ export default function UpdatePost({ postId }: { postId: string }) {
     );
   }
 
-  if (isQueryError || (!isFetching && !isAuthorized)) {
+  if (isQueryError || !isAuthorized) {
     return (
       <section className="p-3 lg:p-6 min-h-screen border-3 border-double flex flex-col items-center justify-center bg-background text-foreground">
         <div className="border-3 border-double p-6 flex flex-col gap-3 text-center w-full max-w-md bg-destructive/10 border-destructive">
@@ -305,8 +314,10 @@ export default function UpdatePost({ postId }: { postId: string }) {
                 key={cat.slug}
                 type="button"
                 onClick={() => {
+                  if (category !== cat.slug) {
+                    setValue("subcategory", null);
+                  }
                   setValue("category", cat.slug, { shouldValidate: true });
-                  setValue("subcategory", null);
                 }}
                 className={cn(
                   "border-3 border-double p-3 flex flex-col items-center gap-2 transition-all",
@@ -665,6 +676,13 @@ export default function UpdatePost({ postId }: { postId: string }) {
             </label>
             <Input
               {...register("external_link")}
+              onBlur={(e) => {
+                setValue(
+                  "external_link",
+                  normalizeUrlProtocol(e.target.value),
+                  { shouldValidate: true },
+                );
+              }}
               maxLength={2048}
               className="border-3 border-double rounded-none text-xs"
             />
@@ -681,6 +699,11 @@ export default function UpdatePost({ postId }: { postId: string }) {
             </label>
             <Input
               {...register("github_link")}
+              onBlur={(e) => {
+                setValue("github_link", normalizeUrlProtocol(e.target.value), {
+                  shouldValidate: true,
+                });
+              }}
               maxLength={2048}
               className="border-3 border-double rounded-none text-xs"
             />
@@ -735,5 +758,16 @@ export default function UpdatePost({ postId }: { postId: string }) {
         </div>
       </form>
     </section>
+  );
+}
+
+export default function UpdatePost({ postId }: { postId: string }) {
+  return (
+    <AuthGuard
+      message="Access denied. Please provide credentials to edit this protocol."
+      level="critical"
+    >
+      <UpdatePostContent postId={postId} />
+    </AuthGuard>
   );
 }

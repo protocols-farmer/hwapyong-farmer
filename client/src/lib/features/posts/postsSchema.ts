@@ -1,9 +1,10 @@
 //src/lib/features/posts/postsSchema.ts
 import { z } from "zod";
 
-const URL_REGEX = /^(https?:\/\/)?([\w\d\-_]+\.)+\.?[\w\d\-_]+(\/.*)?$/i;
+const URL_REGEX = /^https?:\/\/([\w\d\-_]+\.)+\.?[\w\d\-_]+(\/.*)?$/i;
+
 const GITHUB_REGEX =
-  /^(https?:\/\/)?(www\.)?github\.com\/[\w\d\-_]+\/[\w\d\-_]+.*$/i;
+  /^https?:\/\/(www\.)?github\.com\/[\w\-]+\/[\w\-.]+(\/[\w\-./?=&%#]*)?$/i;
 
 const IMAGE_REGEX = /\.(jpeg|jpg|gif|png|webp|avif|svg)(\?.*)?(#.*)?$/i;
 
@@ -43,7 +44,10 @@ export const postSchema = z
           }),
       )
       .min(1, "Provide between 1 and 5 images.")
-      .max(5, "Provide between 1 and 5 images."),
+      .max(5, "Provide between 1 and 5 images.")
+      .refine((items) => new Set(items).size === items.length, {
+        message: "Duplicate image URL in gallery.",
+      }),
 
     title: z
       .string()

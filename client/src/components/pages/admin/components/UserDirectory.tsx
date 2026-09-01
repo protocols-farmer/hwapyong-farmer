@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { updateRoleSchema } from "@/lib/features/admin/adminSchema";
 
 interface Props {
   currentUserId: string;
@@ -27,8 +28,8 @@ interface Props {
 }
 
 export default function UserDirectory({ currentUserId, showToast }: Props) {
-  // MODIFIED: Destructured isError
-  const { data, isLoading, isError } = useGetUsersQuery();
+  const [page, setPage] = useState(1);
+  const { data, isLoading, isFetching, isError } = useGetUsersQuery(page);
   const [updateRole] = useUpdateUserRoleMutation();
 
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
@@ -46,12 +47,24 @@ export default function UserDirectory({ currentUserId, showToast }: Props) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
+    const validation = updateRoleSchema.safeParse({
+      targetUserId: userId,
+      newRole,
+    });
+    if (!validation.success) {
+      showToast(
+        validation.error.issues[0]?.message || "Invalid role change request.",
+        "error",
+      );
+      return;
+    }
+
     setUpdatingUserId(userId);
     try {
       await updateRole({ targetUserId: userId, newRole }).unwrap();
       showToast("Role updated successfully.", "success");
-    } catch (err) {
-      showToast("Role update failed.", "error");
+    } catch (err: any) {
+      showToast(err.data?.error || "Role update failed.", "error");
     } finally {
       setUpdatingUserId(null);
     }
@@ -183,18 +196,20 @@ export default function UserDirectory({ currentUserId, showToast }: Props) {
                                 >
                                   User
                                 </SelectItem>
+
                                 <SelectItem
                                   value="admin"
                                   className="focus:bg-primary focus:text-primary-foreground rounded-none"
                                 >
                                   Admin
                                 </SelectItem>
-                                <SelectItem
+
+                                {/* <SelectItem
                                   value="super_admin"
                                   className="focus:bg-primary focus:text-primary-foreground rounded-none"
                                 >
                                   Super Admin
-                                </SelectItem>
+                                </SelectItem> */}
                               </SelectContent>
                             </Select>
                           )}
@@ -254,6 +269,33 @@ export default function UserDirectory({ currentUserId, showToast }: Props) {
             </tbody>
           </table>
         </div>
+
+        {data && data.totalPages > 1 && (
+          <div className="flex items-center justify-between border-t-3 border-double pt-4 mt-2">
+            <p className="text-xs font-bold opacity-70">
+              Showing Page {data.page} of {data.totalPages} ({data.total} total
+              users)
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                disabled={page === 1 || isFetching}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="border-3 border-double rounded-none h-8 text-xs px-2"
+              >
+                Prev
+              </Button>
+              <Button
+                variant="outline"
+                disabled={page === data.totalPages || isFetching}
+                onClick={() => setPage((p) => p + 1)}
+                className="border-3 border-double rounded-none h-8 text-xs px-2"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showDeleteModal && targetUser && (

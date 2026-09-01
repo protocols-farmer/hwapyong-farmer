@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import CornerFlourish from "@/components/shared/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import AuthGuard from "@/components/shared/AuthGuard";
-
+import { selectIsHydrated } from "@/lib/features/auth/authSlice";
 import MaintenanceProtocol from "./components/MaintenanceProtocol";
 import SecurityBans from "./components/SecurityBans";
 import UserDirectory from "./components/UserDirectory";
@@ -23,6 +23,7 @@ type ToastType = {
 export default function AdminDashboard() {
   const router = useRouter();
   const { user: currentUser } = useSelector((state: any) => state.auth);
+  const isHydrated = useSelector(selectIsHydrated);
   const [toast, setToast] = useState<ToastType>(null);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -35,14 +36,13 @@ export default function AdminDashboard() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  if (!isMounted) {
+  if (!isMounted || !isHydrated) {
     return (
       <section className="p-3 lg:p-6 min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </section>
     );
   }
-
   return (
     <AuthGuard
       message="Super Admin credentials required for entry."

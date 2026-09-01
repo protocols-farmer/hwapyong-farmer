@@ -2,12 +2,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { json } from "node:stream/consumers";
 import Busboy from "busboy";
-import jwt from "jsonwebtoken";
 import { postsService } from "./posts.service.js";
 import { mediaStorage } from "../../db/cloudinary.js";
 import { redisClient } from "../../db/redis.js";
 import type { CreatePostDTO, UpdatePostDTO, Post } from "./posts.types.js";
-import type { JWTPayload } from "../auth/auth.types.js";
+import { verifyAccessToken } from "../auth/verifyAccessToken.js";
 
 const ACCESS_TOKEN_SECRET = process.env["ACCESS_TOKEN_SECRET"];
 
@@ -16,37 +15,28 @@ if (!ACCESS_TOKEN_SECRET) {
   process.exit(1);
 }
 
-const URL_REGEX = /^(https?:\/\/)?([\w\d\-_]+\.)+\.?[\w\d\-_]+(\/.*)?$/i;
+const URL_REGEX = /^https?:\/\/([\w\d\-_]+\.)+\.?[\w\d\-_]+(\/.*)?$/i;
 const GITHUB_REGEX =
-  /^(https?:\/\/)?(www\.)?github\.com\/[\w\d\-_]+\/[\w\d\-_]+.*$/i;
-const IMAGE_REGEX = /\.(jpeg|jpg|gif|png|webp|avif)$/i;
+  /^https?:\/\/(www\.)?github\.com\/[\w\-]+\/[\w\-.]+(\/[\w\-./?=&%#]*)?$/i;
+const IMAGE_REGEX = /\.(jpeg|jpg|gif|png|webp|avif|svg)(\?.*)?(#.*)?$/i;
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const postsController = {
   async uploadMedia(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        res.statusCode = 401;
+      const verifyResult = await verifyAccessToken(
+        req.headers.authorization,
+        ACCESS_TOKEN_SECRET as string,
+        "uploadMedia",
+      );
+      if (!verifyResult.ok) {
+        res.statusCode = verifyResult.statusCode;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Unauthorized" }));
+        res.end(JSON.stringify(verifyResult.body));
         return;
       }
-
-      let decoded: JWTPayload;
-      try {
-        decoded = jwt.verify(
-          authHeader.split(" ")[1] as string,
-          ACCESS_TOKEN_SECRET as string,
-        ) as JWTPayload;
-      } catch (err: any) {
-        process.stderr.write(
-          `[uploadMedia] JWT Verify Error: ${err.message}\nStack: ${err.stack}\n`,
-        );
-        res.statusCode = 401;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: `Invalid token: ${err.message}` }));
-        return;
-      }
+      const decoded = verifyResult.decoded;
 
       if (process.env["NODE_ENV"] !== "development") {
         try {
@@ -75,9 +65,10 @@ export const postsController = {
         }
       }
 
+      const MAX_POST_MEDIA_UPLOAD_BYTES = 5 * 1024 * 1024;
       const bb = Busboy({
         headers: req.headers,
-        limits: { files: 1, fileSize: 5 * 1024 * 1024 },
+        limits: { files: 1, fileSize: MAX_POST_MEDIA_UPLOAD_BYTES },
       });
 
       req.on("aborted", () => {
@@ -91,6 +82,18 @@ export const postsController = {
 
       bb.on("file", (_name, file, info) => {
         fileProcessed = true;
+        file.on("limit", () => {
+          process.stderr.write(
+            `[uploadMedia] File exceeded max size of ${MAX_POST_MEDIA_UPLOAD_BYTES} bytes. Aborting upload.\n`,
+          );
+          if (!res.writableEnded) {
+            res.statusCode = 413;
+            res.setHeader("Content-Type", "application/json");
+            res.end(
+              JSON.stringify({ error: "Image exceeds the 5MB size limit." }),
+            );
+          }
+        });
         if (!info.mimeType.startsWith("image/")) {
           res.statusCode = 415;
           res.setHeader("Content-Type", "application/json");
@@ -99,22 +102,46 @@ export const postsController = {
           return;
         }
 
+        let magicNumberBuffer = Buffer.alloc(0);
+        let magicNumberChecked = false;
+
         file.on("data", function checkMagic(chunk) {
-          const hex = chunk.toString("hex", 0, 4).toUpperCase();
+          magicNumberBuffer = Buffer.concat([magicNumberBuffer, chunk]);
+          if (magicNumberBuffer.length < 12) return;
+
+          magicNumberChecked = true;
+
+          const hex = magicNumberBuffer.toString("hex", 0, 4).toUpperCase();
           const signatures: Record<string, string> = {
             "89504E47": "png",
             FFD8FF: "jpg",
             "47494638": "gif",
             "52494646": "webp",
           };
-          const isValid = Object.keys(signatures).some((sig) =>
+          const isValidBySignature = Object.keys(signatures).some((sig) =>
             hex.startsWith(sig),
           );
-
+          // AVIF/AVIS files don't have a simple 4-byte magic number — they're
+          // an ISO base media container with an "ftyp" box at byte 4 and a
+          // brand name ("avif"/"avis") right after it.
+          const ftypBox = magicNumberBuffer.toString("ascii", 4, 8);
+          const avifBrand = magicNumberBuffer.toString("ascii", 8, 12);
+          const isValidAvif =
+            ftypBox === "ftyp" && ["avif", "avis"].includes(avifBrand);
+          const isValid = isValidBySignature || isValidAvif;
           if (!isValid) {
             file.destroy(new Error("INVALID_MAGIC_NUMBER"));
           }
           file.removeListener("data", checkMagic);
+        });
+
+        file.on("end", () => {
+          if (!magicNumberChecked) {
+            // File ended before we ever accumulated 12 bytes — too small to
+            // be a real image in any supported format. Reject rather than
+            // letting an unvalidated blob reach Cloudinary.
+            file.destroy(new Error("INVALID_MAGIC_NUMBER"));
+          }
         });
 
         file.on("error", (err: any) => {
@@ -132,7 +159,7 @@ export const postsController = {
           {
             folder: "hwapyong/posts",
             resource_type: "auto",
-            allowed_formats: ["jpg", "jpeg", "png", "webp", "gif"],
+            allowed_formats: ["jpg", "jpeg", "png", "webp", "gif", "avif"],
             timeout: 60000,
           },
           (error, result) => {
@@ -233,6 +260,12 @@ export const postsController = {
     postId: string,
   ): Promise<void> {
     try {
+      if (!UUID_REGEX.test(postId)) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Invalid post id format." }));
+        return;
+      }
       const results = await postsService.getPost(postId);
       if (results.rows.length === 0) {
         res.statusCode = 404;
@@ -315,55 +348,30 @@ export const postsController = {
 
   async createPost(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        res.statusCode = 401;
+      const verifyResult = await verifyAccessToken(
+        req.headers.authorization,
+        ACCESS_TOKEN_SECRET as string,
+        "createPost",
+      );
+      if (!verifyResult.ok) {
+        res.statusCode = verifyResult.statusCode;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Unauthorized" }));
+        res.end(JSON.stringify(verifyResult.body));
         return;
       }
+      const decoded = verifyResult.decoded;
 
-      let decoded: JWTPayload;
-      try {
-        decoded = jwt.verify(
-          authHeader.split(" ")[1] as string,
-          ACCESS_TOKEN_SECRET as string,
-        ) as JWTPayload;
-      } catch (err: any) {
-        process.stderr.write(`[createPost] JWT Verify Error: ${err.message}\n`);
-        res.statusCode = 401;
+      if (decoded.role !== "admin" && decoded.role !== "super_admin") {
+        process.stderr.write(
+          `[createPost] Forbidden: user=${decoded.id} role=${decoded.role} attempted to create a post.\n`,
+        );
+        res.statusCode = 403;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: `Invalid token: ${err.message}` }));
+        res.end(
+          JSON.stringify({ error: "Forbidden: Only admins can create posts." }),
+        );
         return;
       }
-
-      if (process.env["NODE_ENV"] !== "development") {
-        try {
-          const createLimitKey = `ratelimit:createpost:${decoded.id}`;
-          const createsCount = await redisClient.incr(createLimitKey);
-
-          if (createsCount === 1) {
-            await redisClient.expire(createLimitKey, 3600);
-          }
-
-          if (createsCount > 5) {
-            res.statusCode = 429;
-            res.setHeader("Content-Type", "application/json");
-            res.end(
-              JSON.stringify({
-                error:
-                  "Creation limit exceeded. Maximum 5 posts per hour to prevent database abuse.",
-              }),
-            );
-            return;
-          }
-        } catch (err: any) {
-          process.stderr.write(
-            `[createPost] Redis Error: ${err.message}\nStack: ${err.stack}\n`,
-          );
-        }
-      }
-
       let data: CreatePostDTO;
       try {
         data = (await json(req)) as CreatePostDTO;
@@ -412,10 +420,14 @@ export const postsController = {
         );
         return;
       }
-      if (
-        data.thumbnail &&
-        !IMAGE_REGEX.test(data.thumbnail.split("?")[0] ?? "")
-      ) {
+      if (data.thumbnail && !URL_REGEX.test(data.thumbnail)) {
+        res.statusCode = 400;
+        res.end(
+          JSON.stringify({ error: "Thumbnail must be a valid image URL." }),
+        );
+        return;
+      }
+      if (data.thumbnail && !IMAGE_REGEX.test(data.thumbnail)) {
         res.statusCode = 400;
         res.end(
           JSON.stringify({ error: "Thumbnail must be a valid image URL." }),
@@ -432,11 +444,13 @@ export const postsController = {
         res.end(JSON.stringify({ error: "Provide between 1 and 5 images." }));
         return;
       }
+      const uniquePostImageUrls = new Set<string>();
       for (const url of data.post_images) {
         if (
           !url ||
           url.length > 2048 ||
-          !IMAGE_REGEX.test(url.split("?")[0] ?? "")
+          !URL_REGEX.test(url) ||
+          !IMAGE_REGEX.test(url)
         ) {
           res.statusCode = 400;
           res.end(
@@ -446,6 +460,12 @@ export const postsController = {
           );
           return;
         }
+        if (uniquePostImageUrls.has(url)) {
+          res.statusCode = 400;
+          res.end(JSON.stringify({ error: "Duplicate image URL in gallery." }));
+          return;
+        }
+        uniquePostImageUrls.add(url);
       }
 
       if (
@@ -521,8 +541,40 @@ export const postsController = {
           );
           return;
         }
+      } else if (data.subcategory) {
+        res.statusCode = 400;
+        res.end(
+          JSON.stringify({
+            error: "Subcategory is only allowed for projects.",
+          }),
+        );
+        return;
       }
 
+      if (process.env["NODE_ENV"] !== "development") {
+        try {
+          const createLimitKey = `ratelimit:createpost:${decoded.id}`;
+          const createsCount = await redisClient.incr(createLimitKey);
+          if (createsCount === 1) {
+            await redisClient.expire(createLimitKey, 3600);
+          }
+          if (createsCount > 5) {
+            res.statusCode = 429;
+            res.setHeader("Content-Type", "application/json");
+            res.end(
+              JSON.stringify({
+                error:
+                  "Creation limit exceeded. Maximum 5 posts per hour to prevent database abuse.",
+              }),
+            );
+            return;
+          }
+        } catch (err: any) {
+          process.stderr.write(
+            `[createPost] Redis Error: ${err.message}\nStack: ${err.stack}\n`,
+          );
+        }
+      }
       const result = await postsService.createPost({
         ...data,
         author_id: decoded.id,
@@ -546,27 +598,24 @@ export const postsController = {
     postId: string,
   ): Promise<void> {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        res.statusCode = 401;
+      if (!UUID_REGEX.test(postId)) {
+        res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Unauthorized" }));
+        res.end(JSON.stringify({ error: "Invalid post id format." }));
         return;
       }
-
-      let decoded: JWTPayload;
-      try {
-        decoded = jwt.verify(
-          authHeader.split(" ")[1] as string,
-          ACCESS_TOKEN_SECRET as string,
-        ) as JWTPayload;
-      } catch (err: any) {
-        process.stderr.write(`[updatePost] JWT Verify Error: ${err.message}\n`);
-        res.statusCode = 401;
+      const verifyResult = await verifyAccessToken(
+        req.headers.authorization,
+        ACCESS_TOKEN_SECRET as string,
+        "updatePost",
+      );
+      if (!verifyResult.ok) {
+        res.statusCode = verifyResult.statusCode;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: `Invalid token: ${err.message}` }));
+        res.end(JSON.stringify(verifyResult.body));
         return;
       }
+      const decoded = verifyResult.decoded;
 
       const existing = await postsService.getPost(postId);
       if (existing.rows.length === 0) {
@@ -625,7 +674,8 @@ export const postsController = {
       if (
         incomingData.thumbnail &&
         (incomingData.thumbnail.length > 2048 ||
-          !IMAGE_REGEX.test(incomingData.thumbnail.split("?")[0] ?? ""))
+          !URL_REGEX.test(incomingData.thumbnail) ||
+          !IMAGE_REGEX.test(incomingData.thumbnail))
       ) {
         res.statusCode = 400;
         res.end(
@@ -633,12 +683,14 @@ export const postsController = {
         );
         return;
       }
-
       if (incomingData.post_images) {
+        const uniqueUpdatedImageUrls = new Set<string>();
         for (const url of incomingData.post_images) {
           if (
             url &&
-            (url.length > 2048 || !IMAGE_REGEX.test(url.split("?")[0] ?? ""))
+            (url.length > 2048 ||
+              !URL_REGEX.test(url) ||
+              !IMAGE_REGEX.test(url))
           ) {
             res.statusCode = 400;
             res.end(
@@ -648,6 +700,14 @@ export const postsController = {
             );
             return;
           }
+          if (url && uniqueUpdatedImageUrls.has(url)) {
+            res.statusCode = 400;
+            res.end(
+              JSON.stringify({ error: "Duplicate image URL in gallery." }),
+            );
+            return;
+          }
+          if (url) uniqueUpdatedImageUrls.add(url);
         }
       }
 
@@ -713,6 +773,14 @@ export const postsController = {
           );
           return;
         }
+      } else if (finalSubcategory) {
+        res.statusCode = 400;
+        res.end(
+          JSON.stringify({
+            error: "Subcategory is only allowed for projects.",
+          }),
+        );
+        return;
       }
 
       const ALLOWED = [
@@ -742,13 +810,41 @@ export const postsController = {
         ...values,
         postId,
       ]);
-
       if (result.rows.length === 0) {
         res.statusCode = 404;
         res.end(JSON.stringify({ error: "Post not found" }));
         return;
       }
+      const oldImageUrls = [post.thumbnail, ...(post.post_images || [])];
+      const newImageUrls = [
+        incomingData.thumbnail !== undefined
+          ? incomingData.thumbnail
+          : post.thumbnail,
+        ...(incomingData.post_images !== undefined
+          ? incomingData.post_images
+          : post.post_images || []),
+      ];
+      const removedImageUrls = oldImageUrls.filter(
+        (url) => url && !newImageUrls.includes(url),
+      );
+      for (const imageUrl of removedImageUrls) {
+        if (!imageUrl || !imageUrl.includes("cloudinary.com")) continue;
+        try {
+          const urlPartsAfterUpload = imageUrl.split("/upload/");
+          const afterUploadRaw = urlPartsAfterUpload[1];
+          if (urlPartsAfterUpload.length === 2 && afterUploadRaw) {
+            const afterUpload = afterUploadRaw.replace(/^v\d+\//, "");
 
+            const publicId = afterUpload.replace(/\.[^/.]+$/, "");
+
+            await mediaStorage.uploader.destroy(publicId);
+          }
+        } catch (cloudinaryErr: any) {
+          process.stderr.write(
+            `[updatePost] Cloudinary cleanup failed for replaced image=${imageUrl} post=${postId}: ${cloudinaryErr.message}\nStack: ${cloudinaryErr.stack}\n`,
+          );
+        }
+      }
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
       res.end(
@@ -769,27 +865,24 @@ export const postsController = {
     postId: string,
   ): Promise<void> {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        res.statusCode = 401;
+      if (!UUID_REGEX.test(postId)) {
+        res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Unauthorized" }));
+        res.end(JSON.stringify({ error: "Invalid post id format." }));
         return;
       }
-
-      let decoded: JWTPayload;
-      try {
-        decoded = jwt.verify(
-          authHeader.split(" ")[1] as string,
-          ACCESS_TOKEN_SECRET as string,
-        ) as JWTPayload;
-      } catch (err: any) {
-        process.stderr.write(`[deletePost] JWT Verify Error: ${err.message}\n`);
-        res.statusCode = 401;
+      const verifyResult = await verifyAccessToken(
+        req.headers.authorization,
+        ACCESS_TOKEN_SECRET as string,
+        "deletePost",
+      );
+      if (!verifyResult.ok) {
+        res.statusCode = verifyResult.statusCode;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: `Invalid token: ${err.message}` }));
+        res.end(JSON.stringify(verifyResult.body));
         return;
       }
+      const decoded = verifyResult.decoded;
 
       const existing = await postsService.getPost(postId);
       if (existing.rows.length === 0) {
@@ -817,6 +910,24 @@ export const postsController = {
         res.end(JSON.stringify({ error: "Post not found" }));
         return;
       }
+      const allImageUrlsToClean = [post.thumbnail, ...(post.post_images || [])];
+      for (const imageUrl of allImageUrlsToClean) {
+        if (!imageUrl || !imageUrl.includes("cloudinary.com")) continue;
+        try {
+          const urlPartsAfterUpload = imageUrl.split("/upload/");
+          const afterUploadRaw = urlPartsAfterUpload[1];
+          if (urlPartsAfterUpload.length === 2 && afterUploadRaw) {
+            const afterUpload = afterUploadRaw.replace(/^v\d+\//, "");
+            const publicId = afterUpload.replace(/\.[^/.]+$/, "");
+
+            await mediaStorage.uploader.destroy(publicId);
+          }
+        } catch (cloudinaryErr: any) {
+          process.stderr.write(
+            `[deletePost] Cloudinary cleanup failed for image=${imageUrl} post=${postId}: ${cloudinaryErr.message}\nStack: ${cloudinaryErr.stack}\n`,
+          );
+        }
+      }
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify({ message: "Post deleted" }));
@@ -835,27 +946,18 @@ export const postsController = {
     url: URL,
   ): Promise<void> {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: "Unauthorized" }));
+      const verifyResult = await verifyAccessToken(
+        req.headers.authorization,
+        ACCESS_TOKEN_SECRET as string,
+        "getOwnPosts",
+      );
+      if (!verifyResult.ok) {
+        res.statusCode = verifyResult.statusCode;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify(verifyResult.body));
         return;
       }
-
-      let decoded: JWTPayload;
-      try {
-        decoded = jwt.verify(
-          authHeader.split(" ")[1] as string,
-          ACCESS_TOKEN_SECRET as string,
-        ) as JWTPayload;
-      } catch (err: any) {
-        process.stderr.write(
-          `[getOwnPosts] JWT Verify Error: ${err.message}\n`,
-        );
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: `Invalid token: ${err.message}` }));
-        return;
-      }
+      const decoded = verifyResult.decoded;
 
       const page = parseInt(url.searchParams.get("page") || "1", 10);
       const limit = 12;
@@ -987,37 +1089,18 @@ export const postsController = {
       let authorId: string | null = null;
 
       if (isMine) {
-        const authHeader = req.headers.authorization;
-
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          process.stderr.write(
-            `[getTags] Auth Error: Missing or invalid authorization header.\n`,
-          );
-          res.statusCode = 401;
+        const verifyResult = await verifyAccessToken(
+          req.headers.authorization,
+          ACCESS_TOKEN_SECRET as string,
+          "getTags",
+        );
+        if (!verifyResult.ok) {
+          res.statusCode = verifyResult.statusCode;
           res.setHeader("Content-Type", "application/json");
-          res.end(
-            JSON.stringify({ error: "Unauthorized to view personal tags." }),
-          );
+          res.end(JSON.stringify(verifyResult.body));
           return;
         }
-
-        try {
-          const token = authHeader.split(" ")[1] as string;
-          const decoded = jwt.verify(
-            token,
-            ACCESS_TOKEN_SECRET as string,
-          ) as JWTPayload;
-
-          authorId = decoded.id;
-        } catch (err: any) {
-          process.stderr.write(
-            `[getTags] JWT Verify Error: ${err.message}\nStack: ${err.stack}\n`,
-          );
-          res.statusCode = 401;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: `Invalid token: ${err.message}` }));
-          return;
-        }
+        authorId = verifyResult.decoded.id;
       }
 
       const tagsList = await postsService.getAllUniqueTags(

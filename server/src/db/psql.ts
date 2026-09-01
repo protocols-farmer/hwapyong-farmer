@@ -13,9 +13,44 @@ if (!connectionString) {
 
 const isProduction = process.env["NODE_ENV"] === "production";
 
+// #12 fix: rejectUnauthorized: false silently accepted ANY certificate,
+// which defeats the point of SSL. This is now explicit instead of a silent
+// default:
+// - Set DATABASE_CA_CERT to the CA certificate PEM from your Render
+//   Postgres dashboard (Database → Connections → CA Certificate) to get
+//   full certificate verification.
+// - Without it, this falls back to the old behavior but now WARNS loudly
+//   at startup instead of doing it silently.
+// - DATABASE_SSL_REJECT_UNAUTHORIZED=true silences that warning if you've
+//   consciously decided to accept the tradeoff.
+const databaseCaCert = process.env["DATABASE_CA_CERT"];
+const explicitRejectUnauthorized =
+  process.env["DATABASE_SSL_REJECT_UNAUTHORIZED"];
+
+let sslConfig: pg.PoolConfig["ssl"];
+
+if (!isProduction) {
+  sslConfig = undefined;
+} else if (databaseCaCert) {
+  sslConfig = { rejectUnauthorized: true, ca: databaseCaCert };
+  console.log(
+    "🥹  Postgres SSL: verifying server certificate against DATABASE_CA_CERT.",
+  );
+} else if (explicitRejectUnauthorized === "true") {
+  sslConfig = { rejectUnauthorized: false };
+  process.stderr.write(
+    "⚠️  WARNING: Postgres SSL certificate verification is explicitly disabled (DATABASE_SSL_REJECT_UNAUTHORIZED=true). This accepts any certificate. Set DATABASE_CA_CERT instead if possible.\n",
+  );
+} else {
+  sslConfig = { rejectUnauthorized: false };
+  process.stderr.write(
+    "⚠️  WARNING: DATABASE_CA_CERT is not set — falling back to rejectUnauthorized: false, which accepts any certificate. Get your database's CA certificate from Render's dashboard (Database → Connections → CA Certificate) and set it as DATABASE_CA_CERT to fix this properly.\n",
+  );
+}
+
 const poolConfig: pg.PoolConfig = {
   connectionString: connectionString,
-  ssl: isProduction ? { rejectUnauthorized: false } : undefined,
+  ssl: sslConfig,
 
   max: 20,
   idleTimeoutMillis: 30000,

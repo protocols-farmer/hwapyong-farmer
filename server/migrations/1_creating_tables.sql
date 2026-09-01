@@ -37,6 +37,7 @@ CREATE TABLE users (
 );
 
 -- --- 4.5. THE REFRESH TOKENS TABLE (SERIOUS AUTH) ---
+
 CREATE TABLE refresh_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -46,7 +47,8 @@ CREATE TABLE refresh_tokens (
     expires_at TIMESTAMPTZ NOT NULL,
     user_agent VARCHAR(1024),
     ip_address VARCHAR(45),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    session_created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- --- 5. THE POSTS TABLE ---
@@ -127,6 +129,8 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+CREATE UNIQUE INDEX idx_users_username_lower ON users (LOWER(username));
+
 
 -- --- 7. AUTOMATION TRIGGERS ---
 CREATE TRIGGER trigger_update_users_timestamp

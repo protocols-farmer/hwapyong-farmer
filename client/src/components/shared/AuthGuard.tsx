@@ -1,13 +1,15 @@
 //src/components/shared/AuthGuard.tsx
 "use client";
 
+// NEW
 import React, { useEffect, useState } from "react";
 import { useSelector } from "react-redux";
 import { useRouter } from "next/navigation";
-import { Lock, ShieldAlert, LogIn, Home } from "lucide-react";
+import { Lock, ShieldAlert, LogIn, Home, Loader2 } from "lucide-react";
 import { RootState } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import CornerFlourish from "./CornerFlourish";
+import { selectIsHydrated } from "@/lib/features/auth/authSlice";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -22,10 +24,12 @@ export default function AuthGuard({
   level = "info",
   allowedRoles,
 }: AuthGuardProps) {
+  // NEW
   const router = useRouter();
   const { isAuthenticated, user } = useSelector(
     (state: RootState) => state.auth,
   );
+  const isHydrated = useSelector(selectIsHydrated);
 
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
@@ -33,6 +37,22 @@ export default function AuthGuard({
   }, []);
 
   if (!isMounted) return null;
+
+  // Wait for AuthInitializer's silent refresh to resolve before judging
+  // isAuthenticated — otherwise a real logged-in user can flash the
+  // "Access Restricted" wall for a moment on every fast page load, purely
+  // because the session hasn't finished rehydrating yet.
+  if (!isHydrated) {
+    return (
+      <div className="relative border-3 border-double p-6 flex flex-col items-center justify-center gap-4 bg-card/50">
+        <CornerFlourish className="-top-1 -left-1" />
+        <CornerFlourish className="-top-1 -right-1 rotate-90" />
+        <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
+        <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (

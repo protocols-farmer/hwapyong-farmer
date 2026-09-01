@@ -35,7 +35,7 @@ export interface AuditLog {
 
 export interface SecurityBan {
   key: string;
-  type: "IP" | "USERNAME";
+  type: "IP";
   target: string;
   remainingSeconds: number;
 }

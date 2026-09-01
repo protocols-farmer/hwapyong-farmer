@@ -17,7 +17,8 @@ interface Props {
 }
 
 export default function MaintenanceProtocol({ showToast }: Props) {
-  const { data: maintData } = useGetMaintenanceQuery();
+  const { data: maintData, isLoading: isMaintLoading } =
+    useGetMaintenanceQuery();
   const [updateMaint, { isLoading: isMaintUpdating }] =
     useUpdateMaintenanceMutation();
 
@@ -55,13 +56,24 @@ export default function MaintenanceProtocol({ showToast }: Props) {
     if (Object.keys(fieldErrors).length > 0) return;
 
     try {
-      await updateMaint({
+      const result = await updateMaint({
         is_maintenance: isMaintLocal,
         maintenance_message: maintMsg,
       }).unwrap();
-      showToast("System protocols updated successfully.", "success");
-    } catch {
-      showToast("Failed to update system protocols.", "error");
+
+      if (result.redisSyncFailed) {
+        showToast(
+          "Saved to the database, but the live gate may not have updated yet. Check server logs.",
+          "error",
+        );
+      } else {
+        showToast("System protocols updated successfully.", "success");
+      }
+    } catch (err: any) {
+      showToast(
+        err.data?.error || "Failed to update system protocols.",
+        "error",
+      );
     }
   };
 
@@ -83,7 +95,7 @@ export default function MaintenanceProtocol({ showToast }: Props) {
         </div>
 
         <button
-          disabled={isMaintUpdating}
+          disabled={isMaintUpdating || isMaintLoading}
           onClick={() => setIsMaintLocal(!isMaintLocal)}
           className={cn(
             "flex items-center gap-2 px-3 py-1 border-3 border-double font-bold text-sm transition-all disabled:opacity-50",
@@ -117,7 +129,7 @@ export default function MaintenanceProtocol({ showToast }: Props) {
         <div className="flex gap-2">
           <input
             value={maintMsg}
-            disabled={isMaintUpdating}
+            disabled={isMaintUpdating || isMaintLoading}
             maxLength={500}
             onChange={(e) => setMaintMsg(e.target.value)}
             placeholder="System protocols are being rewritten..."
@@ -129,7 +141,11 @@ export default function MaintenanceProtocol({ showToast }: Props) {
             )}
           />
           <Button
-            disabled={isMaintUpdating || Object.keys(fieldErrors).length > 0}
+            disabled={
+              isMaintUpdating ||
+              isMaintLoading ||
+              Object.keys(fieldErrors).length > 0
+            }
             onClick={handleSaveSettings}
             className="border-3 border-double rounded-none h-auto aspect-square p-2"
           >

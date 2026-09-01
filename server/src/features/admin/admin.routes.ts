@@ -19,8 +19,9 @@ export const adminRoutes = async ({
   const action = parts[4] || "";
   const targetId = parts[5] || "";
 
+  // NEW
   if (action === "users" && req.method === "GET") {
-    await adminController.listUsers(req, res);
+    await adminController.listUsers(req, res, parseURL);
     return true;
   }
 

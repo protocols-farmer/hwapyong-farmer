@@ -40,7 +40,7 @@ export interface RevokeSessionsDTO {
 
 export interface SecurityBanDTO {
   key: string;
-  type: "IP" | "USERNAME";
+  type: "IP";
   target: string;
   remainingSeconds: number;
 }

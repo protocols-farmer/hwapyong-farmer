@@ -1,8 +1,8 @@
+//src/features/admin/admin.controller.ts
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { json } from "node:stream/consumers";
-import jwt from "jsonwebtoken";
 import { adminService } from "./admin.service.js";
-import type { JWTPayload } from "../auth/auth.types.js";
+import { verifyAccessToken } from "../auth/verifyAccessToken.js";
 import type {
   UpdateSystemSettingsDTO,
   UpdateRoleDTO,
@@ -18,31 +18,27 @@ if (!ACCESS_TOKEN_SECRET) {
   process.exit(1);
 }
 
-export const adminController = {
-  async listUsers(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        authHeader.split(" ")[1] as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-    } catch (err) {
-      process.stderr.write(
-        `[listUsers] JWT Verify Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
+export const adminController = {
+  async listUsers(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+  ): Promise<void> {
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "listUsers",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
+    const decoded = verifyResult.decoded;
 
     if (decoded.role !== "super_admin") {
       res.statusCode = 403;
@@ -52,10 +48,20 @@ export const adminController = {
     }
 
     try {
-      const results = await adminService.getAllUsers();
+      const page = parseInt(url.searchParams.get("page") || "1", 10);
+      const limit = 25;
+
+      const results = await adminService.getAllUsers(page, limit);
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ users: results.rows as AdminUserDTO[] }));
+      res.end(
+        JSON.stringify({
+          users: results.rows as AdminUserDTO[],
+          total: results.totalCount,
+          page: page,
+          totalPages: Math.ceil(results.totalCount / limit),
+        }),
+      );
     } catch (err) {
       process.stderr.write(
         `[listUsers] DB Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
@@ -70,29 +76,18 @@ export const adminController = {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "changeUserRole",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
-
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        authHeader.split(" ")[1] as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-    } catch (err) {
-      process.stderr.write(
-        `[changeUserRole] JWT Verify Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+    const decoded = verifyResult.decoded;
 
     if (decoded.role !== "super_admin") {
       res.statusCode = 403;
@@ -115,9 +110,28 @@ export const adminController = {
     }
 
     try {
-      const validRoles = ["user", "admin", "super_admin"];
+      if (body.newRole === "super_admin") {
+        process.stderr.write(
+          `[changeUserRole] Forbidden: admin=${decoded.id} attempted to grant super_admin to user=${body.targetUserId}.\n`,
+        );
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            error:
+              "Super Admin clearance cannot be granted through this endpoint.",
+          }),
+        );
+        return;
+      }
 
-      if (!body.targetUserId || !validRoles.includes(body.newRole)) {
+      const validRoles = ["user", "admin"];
+
+      if (
+        !body.targetUserId ||
+        !UUID_REGEX.test(body.targetUserId) ||
+        !validRoles.includes(body.newRole)
+      ) {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "Invalid input" }));
@@ -160,6 +174,7 @@ export const adminController = {
       const result = await adminService.updateUserRole(
         body.targetUserId,
         body.newRole,
+        decoded.id,
       );
 
       res.statusCode = 200;
@@ -185,29 +200,18 @@ export const adminController = {
     res: ServerResponse,
     targetId: string,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "removeUser",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
-
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        authHeader.split(" ")[1] as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-    } catch (err) {
-      process.stderr.write(
-        `[removeUser] JWT Verify Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+    const decoded = verifyResult.decoded;
 
     if (decoded.role !== "super_admin") {
       res.statusCode = 403;
@@ -217,10 +221,10 @@ export const adminController = {
     }
 
     try {
-      if (!targetId) {
+      if (!targetId || !UUID_REGEX.test(targetId)) {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Target User ID required" }));
+        res.end(JSON.stringify({ error: "Valid Target User ID required" }));
         return;
       }
 
@@ -278,7 +282,33 @@ export const adminController = {
     }
   },
 
-  async getSettings(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // #2 fix: this endpoint used to skip auth entirely — every sibling route
+  // under /api/v1/admin/* requires a super_admin Bearer token, this one
+  // didn't, letting anyone read the configured maintenance message with no
+  // account at all. The actual maintenance GATE in app.ts reads Redis
+  // directly and never calls this endpoint, so nothing internal depended on
+  // it being open.
+  async getSettings(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "getSettings",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(verifyResult.body));
+      return;
+    }
+    const decoded = verifyResult.decoded;
+
+    if (decoded.role !== "super_admin") {
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Forbidden: Super Admin only." }));
+      return;
+    }
+
     try {
       const result = await adminService.getSystemSettings();
       res.statusCode = 200;
@@ -300,29 +330,18 @@ export const adminController = {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "updateSettings",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
-
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        authHeader.split(" ")[1] as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-    } catch (err) {
-      process.stderr.write(
-        `[updateSettings] JWT Verify Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+    const decoded = verifyResult.decoded;
 
     if (decoded.role !== "super_admin") {
       res.statusCode = 403;
@@ -365,18 +384,22 @@ export const adminController = {
         return;
       }
 
-      const result = await adminService.updateSystemSettings(
-        body.is_maintenance,
-        body.maintenance_message,
-        decoded.id,
-      );
+      const { result, redisSyncFailed } =
+        await adminService.updateSystemSettings(
+          body.is_maintenance,
+          body.maintenance_message,
+          decoded.id,
+        );
 
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
       res.end(
         JSON.stringify({
-          message: "System protocols updated successfully.",
+          message: redisSyncFailed
+            ? "Settings saved to the database, but the live maintenance gate may not have updated yet. Check server logs and retry."
+            : "System protocols updated successfully.",
           settings: result.rows[0] as SystemSettingsDTO,
+          redisSyncFailed,
         }),
       );
     } catch (err) {
@@ -394,29 +417,18 @@ export const adminController = {
     res: ServerResponse,
     url: URL,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "getLogs",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
-
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        authHeader.split(" ")[1] as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-    } catch (err) {
-      process.stderr.write(
-        `[getLogs] JWT Verify Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+    const decoded = verifyResult.decoded;
 
     if (decoded.role !== "super_admin") {
       res.statusCode = 403;
@@ -459,29 +471,18 @@ export const adminController = {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "revokeSessions",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
-
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        authHeader.split(" ")[1] as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-    } catch (err) {
-      process.stderr.write(
-        `[revokeSessions] JWT Verify Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+    const decoded = verifyResult.decoded;
 
     if (decoded.role !== "super_admin") {
       res.statusCode = 403;
@@ -504,10 +505,10 @@ export const adminController = {
     }
 
     try {
-      if (!body.targetUserId) {
+      if (!body.targetUserId || !UUID_REGEX.test(body.targetUserId)) {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Target User ID is required." }));
+        res.end(JSON.stringify({ error: "Valid Target User ID is required." }));
         return;
       }
 
@@ -571,29 +572,18 @@ export const adminController = {
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "getActiveBans",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
-
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        authHeader.split(" ")[1] as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-    } catch (err) {
-      process.stderr.write(
-        `[getActiveBans] JWT Verify Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+    const decoded = verifyResult.decoded;
 
     if (decoded.role !== "super_admin") {
       res.statusCode = 403;
@@ -625,29 +615,18 @@ export const adminController = {
     res: ServerResponse,
     url: URL,
   ): Promise<void> {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.statusCode = 401;
+    const verifyResult = await verifyAccessToken(
+      req.headers.authorization,
+      ACCESS_TOKEN_SECRET as string,
+      "liftBan",
+    );
+    if (!verifyResult.ok) {
+      res.statusCode = verifyResult.statusCode;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
+      res.end(JSON.stringify(verifyResult.body));
       return;
     }
-
-    let decoded: JWTPayload;
-    try {
-      decoded = jwt.verify(
-        authHeader.split(" ")[1] as string,
-        ACCESS_TOKEN_SECRET as string,
-      ) as JWTPayload;
-    } catch (err) {
-      process.stderr.write(
-        `[liftBan] JWT Verify Error: ${(err as Error).message}\nStack: ${(err as Error).stack}\n`,
-      );
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
+    const decoded = verifyResult.decoded;
 
     if (decoded.role !== "super_admin") {
       res.statusCode = 403;

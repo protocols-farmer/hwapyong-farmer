@@ -26,8 +26,8 @@ export default function RevokeSessionsModal({
       const result = await revokeSessions(targetUser.id).unwrap();
       showToast(result.message, "success");
       onClose();
-    } catch (err) {
-      showToast("Failed to revoke sessions.", "error");
+    } catch (err: any) {
+      showToast(err.data?.error || "Failed to revoke sessions.", "error");
     }
   };
 

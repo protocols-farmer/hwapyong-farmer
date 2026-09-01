@@ -48,6 +48,8 @@ type UpdatingTarget =
   | "logout"
   | null;
 
+const ADMIN_PASSWORD_OVERRIDE_PLACEHOLDER = "admin-override-placeholder-value";
+
 export default function Me() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -122,7 +124,9 @@ export default function Me() {
 
       if (newPassword || currentPassword) {
         const passVal = changePasswordSchema.safeParse({
-          currentPassword: isEditingOther ? "ADMIN_OVERRIDE" : currentPassword,
+          currentPassword: isEditingOther
+            ? ADMIN_PASSWORD_OVERRIDE_PLACEHOLDER
+            : currentPassword,
           newPassword,
           confirmPassword,
         });
@@ -187,7 +191,7 @@ export default function Me() {
 
     try {
       const result = await uploadAvatar({
-        id: targetId || undefined,
+        id: isEditingOther ? targetId || undefined : undefined,
         formData,
       }).unwrap();
 
@@ -228,7 +232,7 @@ export default function Me() {
         username,
         profileTitle,
         avatarUrl,
-        id: targetId || undefined,
+        id: isEditingOther ? targetId || undefined : undefined,
       };
 
       const result = await updateAccount(payload).unwrap();
@@ -286,7 +290,7 @@ export default function Me() {
         currentPassword: isEditingOther ? undefined : currentPassword,
         newPassword,
         confirmPassword,
-        id: targetId || undefined,
+        id: isEditingOther ? targetId || undefined : undefined,
       }).unwrap();
 
       setCurrentPassword("");
@@ -310,8 +314,9 @@ export default function Me() {
   const handleDeleteUser = async () => {
     setUpdatingTarget("delete");
     try {
-      await deleteAccount(targetId || undefined).unwrap();
-
+      await deleteAccount(
+        isEditingOther ? targetId || undefined : undefined,
+      ).unwrap();
       if (!isEditingOther) {
         dispatch(logoutAction());
         router.push("/auth");

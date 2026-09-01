@@ -34,6 +34,7 @@ import {
 import { postSchema } from "@/lib/features/posts/postsSchema";
 import { PostCategory, PostSubcategory } from "@/lib/features/posts/postsTypes";
 import AuthGuard from "@/components/shared/AuthGuard";
+import { normalizeUrlProtocol } from "@/lib/utils/url";
 
 const categories = [
   {
@@ -133,16 +134,20 @@ export default function CreatePost() {
 
   const addThumbUrl = () => {
     if (thumbInput.trim()) {
-      setValue("thumbnail", thumbInput.trim(), { shouldValidate: true });
+      setValue("thumbnail", normalizeUrlProtocol(thumbInput), {
+        shouldValidate: true,
+      });
       setThumbInput("");
     }
   };
 
   const addImageUrl = () => {
     if (imageInput.trim() && postImages.length < 5) {
-      setValue("post_images", [...postImages, imageInput.trim()], {
-        shouldValidate: true,
-      });
+      setValue(
+        "post_images",
+        [...postImages, normalizeUrlProtocol(imageInput)],
+        { shouldValidate: true },
+      );
       setImageInput("");
     }
   };
@@ -190,8 +195,12 @@ export default function CreatePost() {
       const result = await createPost({
         ...data,
         subcategory: data.subcategory || null,
-        external_link: data.external_link || null,
-        github_link: data.github_link || null,
+        external_link: data.external_link
+          ? normalizeUrlProtocol(data.external_link)
+          : null,
+        github_link: data.github_link
+          ? normalizeUrlProtocol(data.github_link)
+          : null,
       }).unwrap();
 
       const newPost = result.post;
@@ -250,8 +259,10 @@ export default function CreatePost() {
                   key={cat.slug}
                   type="button"
                   onClick={() => {
+                    if (category !== cat.slug) {
+                      setValue("subcategory", null);
+                    }
                     setValue("category", cat.slug, { shouldValidate: true });
-                    setValue("subcategory", null);
                   }}
                   className={cn(
                     "border-3 border-double p-3 flex flex-col items-center gap-2 transition-all",
@@ -671,8 +682,16 @@ export default function CreatePost() {
                     ({externalLinkChars}/2048)
                   </span>
                 </label>
+
                 <Input
                   {...register("external_link")}
+                  onBlur={(e) => {
+                    setValue(
+                      "external_link",
+                      normalizeUrlProtocol(e.target.value),
+                      { shouldValidate: true },
+                    );
+                  }}
                   placeholder="https://developer.mozilla.org/en-US/"
                   maxLength={2048}
                   className="border-3 border-double rounded-none text-xs"
@@ -696,8 +715,16 @@ export default function CreatePost() {
                     ({githubLinkChars}/2048)
                   </span>
                 </label>
+
                 <Input
                   {...register("github_link")}
+                  onBlur={(e) => {
+                    setValue(
+                      "github_link",
+                      normalizeUrlProtocol(e.target.value),
+                      { shouldValidate: true },
+                    );
+                  }}
                   placeholder="https://github.com/example/repo"
                   maxLength={2048}
                   className="border-3 border-double rounded-none text-xs"

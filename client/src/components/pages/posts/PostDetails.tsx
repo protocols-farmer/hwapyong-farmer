@@ -22,6 +22,7 @@ import {
   useDeletePostMutation,
 } from "@/lib/features/posts/postsApiSlice";
 import { formatDistanceToNow } from "date-fns";
+import { canManagePost as canManagePostUtil } from "@/lib/utils/postPermissions";
 
 const SmartImage = ({
   src,
@@ -128,9 +129,7 @@ export default function PostDetails({ postId }: { postId: string }) {
   const [current, setCurrent] = useState(0);
   const [count, setCount] = useState(0);
 
-  const canManagePost =
-    currentUser &&
-    (currentUser.id === post?.author_id || currentUser.role === "super_admin");
+  const canManagePost = canManagePostUtil(currentUser, post);
 
   const handleDelete = async () => {
     try {
