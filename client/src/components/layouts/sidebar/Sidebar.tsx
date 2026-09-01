@@ -26,7 +26,7 @@ import { navLinks } from "../../shared/navLinks";
 import HomeCard from "./sideBarCards/HomeCard";
 import CategoryCard from "./sideBarCards/CategoryCard";
 import QuickNavigationCard from "./sideBarCards/QuickNavigationCard";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import Link from "next/link";
 
 const categories = [

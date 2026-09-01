@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import Logo from "@/components/shared/Logo";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import { navLinks } from "../../shared/navLinks";
 
 export default function Footer() {

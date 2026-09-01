@@ -1276,7 +1276,7 @@ export const authController = {
     }
 
     const DEFAULT_AVATAR_URL =
-      "https://res.cloudinary.com/dhr9zmb3i/image/upload/v1782116959/portfolio/p8f5k0lhoukdzptxy6fj.jpg";
+      "https://res.cloudinary.com/dhr9zmb3i/image/upload/v1782114895/avatar-fallback_jnzqae.jpg";
 
     try {
       const targetUserResult = await authService.findUserById(targetId);

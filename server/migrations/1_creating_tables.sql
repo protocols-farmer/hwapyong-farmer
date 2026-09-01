@@ -29,7 +29,7 @@ CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username VARCHAR(20) UNIQUE NOT NULL CHECK (char_length(username) >= 3),
     profile_title VARCHAR(100) DEFAULT 'Member',                                      
-    avatar_url VARCHAR(2048) DEFAULT 'https://res.cloudinary.com/dhr9zmb3i/image/upload/v1782116959/portfolio/p8f5k0lhoukdzptxy6fj.jpg', 
+    avatar_url VARCHAR(2048) DEFAULT 'https://res.cloudinary.com/dhr9zmb3i/image/upload/v1782114895/avatar-fallback_jnzqae.jpg', 
     password_hash VARCHAR(255) NOT NULL CHECK (char_length(password_hash) >= 60),
     role user_role NOT NULL DEFAULT 'user', 
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

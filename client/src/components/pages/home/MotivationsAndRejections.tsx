@@ -1,6 +1,6 @@
 //src/components/pages/home/MotivationsAndRejections.tsx
 "use client";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 
 const rejections = [
   {

@@ -10,7 +10,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import { cn } from "@/lib/utils";
 import {
   Monitor,

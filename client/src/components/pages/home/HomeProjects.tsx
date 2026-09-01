@@ -3,7 +3,7 @@
 
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import PostCard from "@/components/pages/posts/PostCard";
 import { useGetSuperAdminSeriousProjectsQuery } from "@/lib/features/posts/postsApiSlice";
 

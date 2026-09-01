@@ -1,6 +1,6 @@
 //src/components/pages/home/HomeAbout.tsx
 "use client";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import Link from "next/dist/client/link";
 

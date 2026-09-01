@@ -1,6 +1,6 @@
 //src/components/pages/legal/TermsOfService.tsx
 
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 

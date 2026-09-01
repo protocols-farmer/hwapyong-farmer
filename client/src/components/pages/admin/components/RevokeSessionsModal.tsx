@@ -3,7 +3,7 @@
 
 import React from "react";
 import { PowerOff } from "lucide-react";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import { useRevokeSessionsMutation } from "@/lib/features/admin/adminApiSlice";
 

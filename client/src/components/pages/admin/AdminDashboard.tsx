@@ -6,7 +6,7 @@ import { useSelector } from "react-redux";
 import { useRouter } from "next/navigation";
 import { ShieldAlert, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import AuthGuard from "@/components/shared/AuthGuard";
 import { selectIsHydrated } from "@/lib/features/auth/authSlice";

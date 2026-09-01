@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import { ShieldAlert, Unlock, Loader2, RefreshCw } from "lucide-react";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {

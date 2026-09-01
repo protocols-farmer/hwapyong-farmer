@@ -1,5 +1,5 @@
 //src/components/pages/home/BioAndSkills.tsx
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import { FaGithub, FaLinkedin, FaXTwitter } from "react-icons/fa6";
 import Link from "next/dist/client/link";
 

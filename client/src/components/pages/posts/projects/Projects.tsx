@@ -5,7 +5,7 @@ import React, { useMemo, useCallback } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import PostCard from "../PostCard";
-import CornerFlourish from "@/components/shared/CornerFlourish";
+import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import FilterSection from "../FilterSection";
 import { Star, Shapes, AlertTriangle } from "lucide-react";
 import {
