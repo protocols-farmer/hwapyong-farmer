@@ -1,7 +1,7 @@
 //src/components/pages/contact/Contact.tsx
 "use client";
 
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import {

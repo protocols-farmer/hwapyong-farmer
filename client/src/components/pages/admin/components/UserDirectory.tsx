@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { User as UserIcon, Trash2, Loader2, PowerOff } from "lucide-react";
 import { cn } from "@/lib/utils";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import {
   useGetUsersQuery,
   useUpdateUserRoleMutation,

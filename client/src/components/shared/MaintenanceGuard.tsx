@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useGetMaintenanceQuery } from "@/lib/features/admin/adminApiSlice";
 import { Button } from "@/components/ui/button";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 
 export default function MaintenanceGuard({
   children,

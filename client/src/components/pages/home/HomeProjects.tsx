@@ -3,16 +3,20 @@
 
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import PostCard from "@/components/pages/posts/PostCard";
 import { useGetSuperAdminSeriousProjectsQuery } from "@/lib/features/posts/postsApiSlice";
+import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
+import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
 
 const CardSkeleton = () => (
   <div className="relative border-3 border-double bg-card flex flex-col gap-3 p-3 justify-between h-full animate-pulse">
-    <CornerFlourish className="-top-1 -left-1" />
-    <CornerFlourish className="-top-1 -right-1 rotate-90" />
-    <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
-    <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+    <OrnateVictoria className="-top-1 -left-1" />
+    <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+    <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+    <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
+
+    <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
+    <BorderCenterpiece className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-[60%] w-44 h-auto rotate-180 z-20" />
 
     <div className="flex flex-col gap-3">
       <div className="relative aspect-video border-3 border-double bg-background flex items-center justify-center">
@@ -53,10 +57,10 @@ export default function HomeProjects() {
 
   return (
     <div className="relative border-3 border-double p-3 flex flex-col gap-3">
-      <CornerFlourish className="-top-1 -left-1" />
-      <CornerFlourish className="-top-1 -right-1 rotate-90" />
-      <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
-      <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+      <OrnateVictoria className="-top-1 -left-1" />
+      <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+      <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+      <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
 
       <div className="flex gap-1 items-center text-primary">
         <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit">

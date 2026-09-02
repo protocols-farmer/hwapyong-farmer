@@ -15,6 +15,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useGetFilteredPostsQuery } from "@/lib/features/posts/postsApiSlice";
+import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 
 export default function CategoryCard() {
   const pathname = usePathname();
@@ -111,10 +113,15 @@ export default function CategoryCard() {
             href={cat.href}
             key={i}
             className={cn(
-              " border-3 border-double hover:bg-card/70  transition-all duration-300 p-3 flex flex-col gap-3 ",
+              "relative border-3 border-double hover:bg-card/70  transition-all duration-300 p-3 flex flex-col gap-3 ",
               isActive && "bg-card  ",
             )}
           >
+            <CornerFlourish className="-top-1 -left-1 rotate-0" />
+            <CornerFlourish className="-top-1 -right-1 rotate-90" />
+            <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
+            <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+            <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
             <div className="flex gap-1 items-center  text-primary ">
               <cat.icon className="h-5 w-5" />
               <h3>{cat.title}</h3>

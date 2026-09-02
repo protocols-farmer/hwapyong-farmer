@@ -6,9 +6,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import CornerFlourish from "../../shared/flourishes/CornerFlourish";
 import { formatDistanceToNow } from "date-fns";
 import { Post } from "@/lib/features/posts/postsTypes";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 
 const SmartImage = ({
   src,

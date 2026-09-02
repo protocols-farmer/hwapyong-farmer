@@ -26,8 +26,9 @@ import { navLinks } from "../../shared/navLinks";
 import HomeCard from "./sideBarCards/HomeCard";
 import CategoryCard from "./sideBarCards/CategoryCard";
 import QuickNavigationCard from "./sideBarCards/QuickNavigationCard";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import Link from "next/link";
+import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
 
 const categories = [
   { icon: Monitor, href: "/posts/computer-science", label: "Computer Science" },
@@ -158,11 +159,9 @@ export default function Sidebar() {
       </div>
 
       {!isCollapsed ? (
-        <div className="relative p-3 border-3  border-double flex flex-col gap-1">
-          <CornerFlourish className="-top-1 -left-1 rotate-0" />
-          <CornerFlourish className="-top-1 -right-1 rotate-90" />
-          <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
-          <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+        <div className="relative p-3 border-3  border-double flex flex-col gap-1 overflow-visible">
+          <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+          <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
 
           <p className="text-xs">
             Well who would refuse a free coffee from you guys hehe any amount

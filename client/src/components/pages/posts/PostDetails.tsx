@@ -13,7 +13,7 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from "@/components/ui/carousel";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { useSelector } from "react-redux";

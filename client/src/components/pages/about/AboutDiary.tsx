@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState } from "react";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import PostCard from "@/components/pages/posts/PostCard";
 import { useGetSuperAdminDiaryQuery } from "@/lib/features/posts/postsApiSlice";
 

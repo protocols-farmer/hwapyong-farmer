@@ -9,7 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import { useGetAuditLogsQuery } from "@/lib/features/admin/adminApiSlice";
 

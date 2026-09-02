@@ -1,7 +1,8 @@
 //src/components/pages/home/BioAndSkills.tsx
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
 import { FaGithub, FaLinkedin, FaXTwitter } from "react-icons/fa6";
 import Link from "next/dist/client/link";
+import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
+import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
 
 const bioData = [
   { label: "name :", value: "hwapyong maniragaba edoaurd" },
@@ -83,11 +84,14 @@ const socialLinks = [
 function BioAndSkills() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="relative border-3 border-double  p-3 flex flex-col gap-3">
-        <CornerFlourish className="-top-1 -left-1" />
-        <CornerFlourish className="-top-1 -right-1 rotate-90" />
-        <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
-        <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+      <div className="relative border-3 border-double  p-3 flex flex-col gap-3 overflow-visible">
+        <OrnateVictoria className="-top-1 -left-1" />
+        <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+        <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+        <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
+
+        <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
+        <BorderCenterpiece className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-[60%] w-44 h-auto rotate-180 z-20" />
 
         <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit">
           Who am i ? :
@@ -135,10 +139,13 @@ function BioAndSkills() {
       </div>
 
       <div className="relative border-3 border-double p-3 flex flex-col gap-6">
-        <CornerFlourish className="-top-1 -left-1" />
-        <CornerFlourish className="-top-1 -right-1 rotate-90" />
-        <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
-        <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+        <OrnateVictoria className="-top-1 -left-1" />
+        <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+        <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+        <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
+
+        <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
+        <BorderCenterpiece className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-[60%] w-44 h-auto rotate-180 z-20" />
 
         <div className="flex flex-col gap-3">
           <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit">

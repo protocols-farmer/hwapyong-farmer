@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import StoreProvider from "@/components/providers/StoreProvider";
 import MaintenanceGuard from "@/components/shared/MaintenanceGuard";
 import AuthInitializer from "@/components/providers/AuthInitializer";
+import { FlourishSprites } from "@/components/shared/FlourishSprites";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,7 +42,10 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             <AuthInitializer>
-              <MaintenanceGuard>{children}</MaintenanceGuard>
+              <MaintenanceGuard>
+                <FlourishSprites />
+                {children}
+              </MaintenanceGuard>
             </AuthInitializer>
           </ThemeProvider>
         </StoreProvider>

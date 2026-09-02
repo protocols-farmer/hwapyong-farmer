@@ -1,16 +1,20 @@
 //src/components/pages/home/HomeAbout.tsx
 "use client";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
+import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
 import { Button } from "@/components/ui/button";
 import Link from "next/dist/client/link";
 
 function HomeAbout() {
   return (
     <div className="relative border-3 border-double  p-3 flex flex-col gap-3">
-      <CornerFlourish className="-top-1 -left-1" />
-      <CornerFlourish className="-top-1 -right-1 rotate-90" />
-      <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
-      <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+      <OrnateVictoria className="-top-1 -left-1" />
+      <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+      <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+      <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
+
+      <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
+      <BorderCenterpiece className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-[60%] w-44 h-auto rotate-180 z-20" />
 
       <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit">
         About me :

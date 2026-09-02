@@ -3,7 +3,7 @@
 
 import React from "react";
 import { AlertTriangle } from "lucide-react";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import { Button } from "@/components/ui/button";
 import { useDeleteUserMutation } from "@/lib/features/admin/adminApiSlice";
 

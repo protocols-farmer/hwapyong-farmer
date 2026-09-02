@@ -19,7 +19,7 @@ import Link from "next/link";
 import HomeCard from "./sideBarCards/HomeCard";
 import CategoryCard from "./sideBarCards/CategoryCard";
 import QuickNavigationCard from "./sideBarCards/QuickNavigationCard";
-import CornerFlourish from "@/components/shared/flourishes/CornerFlourish";
+import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import Logo from "@/components/shared/Logo";
 
 export default function MobileSidebar() {
