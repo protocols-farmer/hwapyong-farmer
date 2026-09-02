@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { Lock, ShieldAlert, LogIn, Home, Loader2 } from "lucide-react";
 import { RootState } from "@/lib/store";
 import { Button } from "@/components/ui/button";
-import CornerFlourish from "./flourishes/CornerFlourish";
+import { CornerFlourish } from "./flourishes/CornerFlourish";
 import { selectIsHydrated } from "@/lib/features/auth/authSlice";
 
 interface AuthGuardProps {
