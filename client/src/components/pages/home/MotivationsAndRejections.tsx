@@ -46,17 +46,17 @@ function MotivationsAndRejections() {
       </h4>
 
       <p className=" border-l-3 border-double pl-3 flex flex-col gap-3">
-        Any way I got balls to apply to 75+ colleges and got 75+ college
-        rejection with in 3 application period that's 3 years gap year man...
-        Yeah, with enough balls to apply to top colleges bellow, I just wanted
-        fully funded scholar ship that's it and their resources to do my own
-        research nerdy shit but I got what i deserved including messages like
-        "unfortunately we can't let you in bro, your gpa is bad and you don't
-        know how to speak"... i can teach my self stuff any ways {":("}. I grew
-        up in a farming village, low income family off course.. Man i loved
-        nature a lot!. Thought i'd become a naturalist some shit like that but,
-        well the curiosity of understanding how tech world works brought me here
-        and i love tech related stuff...
+        Anyway, I had the courage to apply to 75+ colleges and got 75+ college
+        rejections within 3 application periods. That's 3 years of gap years,
+        man... Yeah, I had the courage to apply to top colleges below. I just
+        wanted a fully funded scholarship, that's it, and access to their
+        resources so I could do my own research. But I got what I deserved,
+        including messages like, "Unfortunately, we can't let you in, bro. Your
+        GPA is bad, and you don't know how to speak." I can teach myself stuff
+        anyway if I have to. I grew up in a farming village, in a low-income
+        family, of course. I loved nature a lot! I thought I'd become a
+        naturalist or something like that, but the curiosity to understand how
+        the tech world works brought me here, and I love tech-related stuff...
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
