@@ -8,6 +8,7 @@ import StoreProvider from "@/components/providers/StoreProvider";
 import MaintenanceGuard from "@/components/shared/MaintenanceGuard";
 import AuthInitializer from "@/components/providers/AuthInitializer";
 import { FlourishSprites } from "@/components/shared/FlourishSprites";
+import localFont from "next/font/local";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,6 +18,12 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+const ghosthey = localFont({
+  src: "./fonts/ghosthey-Regular.ttf",
+  variable: "--font-ghosthey",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -32,7 +39,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${ghosthey.variable} antialiased`}
       >
         <StoreProvider>
           <ThemeProvider

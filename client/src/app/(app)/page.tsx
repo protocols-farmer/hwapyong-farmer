@@ -1,10 +1,10 @@
 //src/app/(app)/page.tsx
-import Home from "@/components/pages/home/Home";
+import HomeHero from "@/components/pages/home/HomeHero";
 
 function page() {
   return (
     <main>
-      <Home />
+      <HomeHero />
     </main>
   );
 }

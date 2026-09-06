@@ -44,6 +44,7 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  --font-ghosthey: var(--font-ghosthey);
 }
 
 :root {
@@ -142,8 +143,17 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image:
+      linear-gradient(
+        color-mix(in srgb, var(--background) 88%, transparent),
+        color-mix(in srgb, var(--background) 88%, transparent)
+      ),
+      url("/old-paper.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
   }
-
   ::-webkit-scrollbar {
     width: 12px;
   }
@@ -167,4 +177,16 @@
     scrollbar-width: thin;
     scrollbar-color: var(--primary) var(--background);
   }
+}
+
+.header-container {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--card) 65%, transparent),
+      color-mix(in srgb, var(--card) 65%, transparent)
+    ),
+    url("/old-paper.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
