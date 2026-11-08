@@ -21,7 +21,7 @@ export const navLinks: NavLink[] = [
   { href: "/about", label: "About", icon: User },
   { href: "/contact", label: "Contact", icon: MessageCircle },
   {
-    href: "/admin/dashboard",
+    href: "/admin",
     label: "Admin",
     icon: ShieldAlert,
     ownerOnly: true,

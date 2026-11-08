@@ -134,12 +134,12 @@ export default function CategoryCard() {
             <div className="p-3 border-3 border-double text-xs">
               {isLoading ? (
                 <div className="flex items-center justify-center gap-2 py-1">
-                  <span className="animate-pulse">Syncing...</span>
+                  <span className="animate-pulse">Loading...</span>
                 </div>
               ) : isError ? (
                 <div className="flex items-center justify-center gap-1 py-1 text-destructive font-bold">
                   <AlertTriangle className="h-3 w-3" />
-                  <span>Error syncing</span>
+                  <span>Failed to load</span>
                 </div>
               ) : typeof cat.detail === "string" ? (
                 <div className="flex justify-between">

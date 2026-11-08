@@ -2,5 +2,5 @@
 
 export const maintenanceState = {
   isMaintenance: false,
-  message: "System is under maintenance. Protocols are being updated.",
+  message: "The site is under maintenance. Please check back soon.",
 };

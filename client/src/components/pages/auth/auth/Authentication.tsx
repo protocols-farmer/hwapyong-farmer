@@ -93,7 +93,7 @@ export default function Authentication() {
       }).unwrap();
 
       dispatch(setCredentials(result));
-      setSuccess("Accessing protocols...");
+      setSuccess("Logging In...");
       router.push("/me");
     } catch (err: any) {
       console.error("[Authentication.handleSubmit] Login failed", err);

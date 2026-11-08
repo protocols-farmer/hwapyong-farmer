@@ -962,7 +962,7 @@ function UpdatePostContent({ postId }: { postId: string }) {
         {(Object.keys(errors).length > 0 || serverError) && (
           <div className="border-3 border-double border-destructive p-3 bg-destructive/10">
             <p className="text-xs font-bold text-destructive flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" /> Protocol Violation
+              <AlertTriangle className="h-3 w-3" /> Please fix the errors below
             </p>
             {serverError && (
               <p className="text-xs text-destructive mt-1">{serverError}</p>

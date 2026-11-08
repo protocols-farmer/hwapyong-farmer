@@ -61,14 +61,14 @@ export default function MaintenanceProtocol({ showToast }: Props) {
         maintenance_message: maintMsg,
       }).unwrap();
 
-      showToast("System protocols updated successfully.", "success");
+      showToast("Maintenance settings updated successfully.", "success");
     } catch (err: any) {
       console.error(
         "[MaintenanceProtocol.handleSaveSettings] Failed to update maintenance",
         err,
       );
       showToast(
-        err?.data?.error || "Failed to update system protocols.",
+        err?.data?.error || "Failed to update maintenance settings..",
         "error",
       );
     }
@@ -131,7 +131,7 @@ export default function MaintenanceProtocol({ showToast }: Props) {
             disabled={isMaintUpdating || isMaintLoading}
             maxLength={500}
             onChange={(e) => setMaintMsg(e.target.value)}
-            placeholder="System protocols are being rewritten..."
+            placeholder="We are making some updates. Back soon...."
             className={cn(
               "flex-1 bg-background border-3 border-double p-2 text-xs font-bold outline-none transition-colors disabled:opacity-50",
               isInvalidLength

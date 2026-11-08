@@ -6,7 +6,10 @@ import { useSelector } from "react-redux";
 import { usePathname, useRouter } from "next/navigation";
 import { Hammer, LogIn, RefreshCw, Loader2, WifiOff } from "lucide-react";
 import { useGetMaintenanceQuery } from "@/lib/features/admin/adminApiSlice";
-import { selectIsAuthenticated } from "@/lib/features/auth/authSlice";
+import {
+  selectIsAuthenticated,
+  selectIsHydrated,
+} from "@/lib/features/auth/authSlice";
 import { Button } from "@/components/ui/button";
 import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 
@@ -18,7 +21,7 @@ export default function MaintenanceGuard({
   const pathname = usePathname();
   const router = useRouter();
   const isAuthenticated = useSelector(selectIsAuthenticated);
-
+  const isHydrated = useSelector(selectIsHydrated);
   const { data, error, isLoading, isFetching, refetch } =
     useGetMaintenanceQuery(undefined, {
       pollingInterval: 60000,
@@ -44,13 +47,13 @@ export default function MaintenanceGuard({
     return () => clearTimeout(timer);
   }, [isLoading, data]);
 
-  if (!isMounted) {
+  if (!isMounted || !isHydrated) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center text-foreground">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <span className="bg-primary text-primary-foreground font-bold p-1 text-xs">
-            INITIALIZING CORE PROTOCOLS...
+            Loading...
           </span>
         </div>
       </div>
@@ -163,10 +166,8 @@ export default function MaintenanceGuard({
   const maintenanceMessage =
     (error as any)?.data?.message ||
     data?.settings?.maintenance_message ||
-    "The system is currently undergoing critical updates.";
-
-  const isWhitelistedRoute =
-    pathname === "/auth" || pathname.startsWith("/admin");
+    "The site is currently undergoing maintenance. Please check back later.";
+  const isWhitelistedRoute = pathname === "/auth";
 
   if (isMaintenanceActive && !isAuthenticated && !isWhitelistedRoute) {
     return (
@@ -184,7 +185,7 @@ export default function MaintenanceGuard({
 
             <div className="flex flex-col gap-3 text-center">
               <h1 className="bg-primary text-primary-foreground font-bold p-1 w-fit mx-auto text-sm flex items-center gap-2">
-                System Lockdown :
+                Under Maintenance :
               </h1>
 
               <div className="border-l-3 border-double pl-3 text-left">
@@ -203,7 +204,7 @@ export default function MaintenanceGuard({
                   className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
                 />
                 <span className="text-xs font-bold">
-                  {isFetching ? "Checking..." : "Refresh Protocols"}
+                  {isFetching ? "Checking..." : "Check Again"}
                 </span>
               </Button>
               <Button
@@ -211,7 +212,7 @@ export default function MaintenanceGuard({
                 className="border-3 border-double rounded-none w-full gap-2 transition-all"
               >
                 <LogIn className="h-4 w-4" />
-                <span className="text-xs font-bold">Terminal Login</span>
+                <span className="text-xs font-bold">Owner Login</span>
               </Button>
             </div>
           </div>

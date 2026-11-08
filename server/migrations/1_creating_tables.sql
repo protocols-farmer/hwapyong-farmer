@@ -94,7 +94,7 @@ CREATE TABLE system_settings (
     is_maintenance BOOLEAN NOT NULL DEFAULT false,
     maintenance_message VARCHAR(500) NOT NULL
         CHECK (char_length(maintenance_message) BETWEEN 10 AND 500)
-        DEFAULT 'System is under maintenance. Protocols are being updated.',
+        DEFAULT 'The site is under maintenance. Please check back soon.',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

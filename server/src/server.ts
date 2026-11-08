@@ -83,7 +83,7 @@ const startServer = async () => {
         );
         maintenanceState.message = String(
           settingsRes.rows[0].maintenance_message ||
-            "System is under maintenance. Protocols are being updated.",
+            "The site is under maintenance. Please check back soon.",
         );
         console.log(
           `🥹  Maintenance state loaded (isMaintenance=${maintenanceState.isMaintenance}).`,

@@ -62,7 +62,7 @@ export default function AuthGuard({
 
         <div className="text-center flex flex-col gap-2">
           <h3 className="font-bold text-sm bg-primary text-primary-foreground px-2 py-1 w-fit mx-auto">
-            Access Restricted :
+            Login Required :
           </h3>
           <p className="text-xs font-bold max-w-[250px] leading-relaxed">
             {message}
