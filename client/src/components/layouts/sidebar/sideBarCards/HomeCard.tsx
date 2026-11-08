@@ -13,11 +13,11 @@ export default function HomeCard() {
     <Link
       href="/"
       className={cn(
-        " border-3 hover:bg-card/50 border-double transition-all duration-300 p-3 flex flex-col gap-3 ",
-        isActive && "bg-card  ",
+        "border-3 hover:bg-card/50 border-double transition-all duration-300 p-3 flex flex-col gap-3",
+        isActive && "bg-card",
       )}
     >
-      <div className="flex gap-1 items-center text-primary ">
+      <div className="flex gap-1 items-center text-primary">
         <h3>Home & About</h3>
       </div>
 
@@ -31,7 +31,7 @@ export default function HomeCard() {
         variant="outline"
         className="border-3 border-double rounded-none w-full pointer-events-none"
       >
-        <span>Enter Room</span>
+        <span>{isActive ? "Already In" : "Enter Room"}</span>
       </Button>
     </Link>
   );

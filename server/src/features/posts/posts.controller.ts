@@ -1,19 +1,17 @@
 //src/features/posts/posts.controller.ts
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { json } from "node:stream/consumers";
+import crypto from "node:crypto";
 import Busboy from "busboy";
 import { postsService } from "./posts.service.js";
 import { mediaStorage } from "../../db/cloudinary.js";
-import { redisClient } from "../../db/redis.js";
-import type { CreatePostDTO, UpdatePostDTO, Post } from "./posts.types.js";
-import { verifyAccessToken } from "../auth/verifyAccessToken.js";
-
-const ACCESS_TOKEN_SECRET = process.env["ACCESS_TOKEN_SECRET"];
-
-if (!ACCESS_TOKEN_SECRET) {
-  process.stderr.write("FATAL ERROR: ACCESS_TOKEN_SECRET is not defined.\n");
-  process.exit(1);
-}
+import { verifySession } from "../auth/verifySession.js";
+import type {
+  CreatePostDTO,
+  UpdatePostDTO,
+  Post,
+  PostCategory,
+} from "./posts.types.js";
 
 const URL_REGEX = /^https?:\/\/([\w\d\-_]+\.)+\.?[\w\d\-_]+(\/.*)?$/i;
 const GITHUB_REGEX =
@@ -21,13 +19,19 @@ const GITHUB_REGEX =
 const IMAGE_REGEX = /\.(jpeg|jpg|gif|png|webp|avif|svg)(\?.*)?(#.*)?$/i;
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const VALID_CATEGORIES: PostCategory[] = [
+  "bio-engineering",
+  "computer-science",
+  "projects",
+  "diary",
+];
 
 export const postsController = {
   async uploadMedia(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      const verifyResult = await verifyAccessToken(
+      const verifyResult = await verifySession(
         req.headers.authorization,
-        ACCESS_TOKEN_SECRET as string,
         "uploadMedia",
       );
       if (!verifyResult.ok) {
@@ -35,34 +39,6 @@ export const postsController = {
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify(verifyResult.body));
         return;
-      }
-      const decoded = verifyResult.decoded;
-
-      if (process.env["NODE_ENV"] !== "development") {
-        try {
-          const uploadLimitKey = `ratelimit:upload:${decoded.id}`;
-          const uploadsCount = await redisClient.incr(uploadLimitKey);
-
-          if (uploadsCount === 1) {
-            await redisClient.expire(uploadLimitKey, 3600);
-          }
-
-          if (uploadsCount > 10) {
-            res.statusCode = 429;
-            res.setHeader("Content-Type", "application/json");
-            res.end(
-              JSON.stringify({
-                error:
-                  "Upload limit exceeded. Maximum 10 media uploads per hour to prevent storage abuse.",
-              }),
-            );
-            return;
-          }
-        } catch (err: any) {
-          process.stderr.write(
-            `[uploadMedia] Redis Error: ${err.message}\nStack: ${err.stack}\n`,
-          );
-        }
       }
 
       const MAX_POST_MEDIA_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -72,8 +48,8 @@ export const postsController = {
       });
 
       req.on("aborted", () => {
-        process.stderr.write(
-          `[uploadMedia] Client aborted connection midway. Destroying stream to clear memory.\n`,
+        console.warn(
+          "[posts.controller.uploadMedia] Client aborted upload connection midway.",
         );
         req.unpipe(bb);
       });
@@ -83,8 +59,8 @@ export const postsController = {
       bb.on("file", (_name, file, info) => {
         fileProcessed = true;
         file.on("limit", () => {
-          process.stderr.write(
-            `[uploadMedia] File exceeded max size of ${MAX_POST_MEDIA_UPLOAD_BYTES} bytes. Aborting upload.\n`,
+          console.warn(
+            `[posts.controller.uploadMedia] File exceeded max size of ${MAX_POST_MEDIA_UPLOAD_BYTES} bytes.`,
           );
           if (!res.writableEnded) {
             res.statusCode = 413;
@@ -94,10 +70,11 @@ export const postsController = {
             );
           }
         });
+
         if (!info.mimeType.startsWith("image/")) {
           res.statusCode = 415;
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: "Only images allowed" }));
+          res.end(JSON.stringify({ error: "Only images allowed." }));
           file.resume();
           return;
         }
@@ -121,9 +98,6 @@ export const postsController = {
           const isValidBySignature = Object.keys(signatures).some((sig) =>
             hex.startsWith(sig),
           );
-          // AVIF/AVIS files don't have a simple 4-byte magic number — they're
-          // an ISO base media container with an "ftyp" box at byte 4 and a
-          // brand name ("avif"/"avis") right after it.
           const ftypBox = magicNumberBuffer.toString("ascii", 4, 8);
           const avifBrand = magicNumberBuffer.toString("ascii", 8, 12);
           const isValidAvif =
@@ -137,21 +111,19 @@ export const postsController = {
 
         file.on("end", () => {
           if (!magicNumberChecked) {
-            // File ended before we ever accumulated 12 bytes — too small to
-            // be a real image in any supported format. Reject rather than
-            // letting an unvalidated blob reach Cloudinary.
             file.destroy(new Error("INVALID_MAGIC_NUMBER"));
           }
         });
 
         file.on("error", (err: any) => {
-          process.stderr.write(
-            `[uploadMedia] Busboy File Error: ${err.message}\nStack: ${err.stack}\n`,
+          console.error(
+            "[posts.controller.uploadMedia] Busboy file stream error",
+            err,
           );
           if (err.message === "INVALID_MAGIC_NUMBER" && !res.writableEnded) {
             res.statusCode = 415;
             res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "Spoofed file type detected" }));
+            res.end(JSON.stringify({ error: "Spoofed file type detected." }));
           }
         });
 
@@ -164,15 +136,16 @@ export const postsController = {
           },
           (error, result) => {
             if (error) {
-              process.stderr.write(
-                `[uploadMedia] Cloudinary Callback Error: ${error.message}\n`,
+              console.error(
+                "[posts.controller.uploadMedia] Cloudinary upload callback error",
+                error,
               );
               if (!res.writableEnded) {
                 res.statusCode = 502;
                 res.setHeader("Content-Type", "application/json");
                 res.end(
                   JSON.stringify({
-                    error: `Network/Upload failed: ${error.message}`,
+                    error: "Failed to upload media to storage.",
                   }),
                 );
               }
@@ -187,15 +160,16 @@ export const postsController = {
         );
 
         uploadStream.on("error", (err: any) => {
-          process.stderr.write(
-            `[uploadMedia] FATAL STREAM CRASH PREVENTED: ${err.message}\nStack: ${err.stack}\n`,
+          console.error(
+            "[posts.controller.uploadMedia] Cloudinary upload stream error",
+            err,
           );
           if (!res.writableEnded) {
             res.statusCode = 502;
             res.setHeader("Content-Type", "application/json");
             res.end(
               JSON.stringify({
-                error: `Upload connection lost: ${err.message}`,
+                error: "Upload connection lost during processing.",
               }),
             );
           }
@@ -208,103 +182,111 @@ export const postsController = {
         if (!fileProcessed && !res.writableEnded) {
           res.statusCode = 400;
           res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify({ error: "No file uploaded" }));
+          res.end(JSON.stringify({ error: "No file uploaded." }));
         }
       });
 
       req.pipe(bb);
-    } catch (err: any) {
-      process.stderr.write(
-        `[uploadMedia] CRITICAL FATAL ERROR: ${err.message}\nStack: ${err.stack}\n`,
+    } catch (err) {
+      console.error(
+        "[posts.controller.uploadMedia] Unexpected error in uploadMedia",
+        err,
       );
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: err.message }));
-    }
-  },
-
-  async getAllPosts(
-    _req: IncomingMessage,
-    res: ServerResponse,
-    url: URL,
-  ): Promise<void> {
-    try {
-      const page = parseInt(url.searchParams.get("page") || "1", 10);
-      const limit = 12;
-
-      const results = await postsService.getAllPosts(page, limit);
-
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          posts: results.rows,
-          total: results.totalCount,
-          page: page,
-          totalPages: Math.ceil(results.totalCount / limit),
-        }),
-      );
-    } catch (err: any) {
-      process.stderr.write(
-        `[getAllPosts] ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: err.message }));
+      if (!res.writableEnded) {
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Failed to process media upload." }));
+      }
     }
   },
 
   async getPost(
-    _req: IncomingMessage,
+    req: IncomingMessage,
     res: ServerResponse,
-    postId: string,
+    identifier: string,
   ): Promise<void> {
     try {
-      if (!UUID_REGEX.test(postId)) {
+      const cleanedId = decodeURIComponent(identifier).trim();
+      const isUuid = UUID_REGEX.test(cleanedId);
+      const isSlug =
+        cleanedId.length >= 3 &&
+        cleanedId.length <= 120 &&
+        SLUG_REGEX.test(cleanedId);
+
+      if (!isUuid && !isSlug) {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Invalid post id format." }));
+        res.end(JSON.stringify({ error: "Invalid post identifier format." }));
         return;
       }
-      const results = await postsService.getPost(postId);
+
+      const results = await postsService.getPost(cleanedId);
       if (results.rows.length === 0) {
         res.statusCode = 404;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Post not found" }));
+        res.end(JSON.stringify({ error: "Post not found." }));
         return;
       }
+
+      const post = results.rows[0] as Post;
+
+      if (!post.is_published) {
+        const verifyResult = await verifySession(
+          req.headers.authorization,
+          "getPostDraft",
+        );
+        if (!verifyResult.ok) {
+          res.statusCode = 404;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: "Post not found." }));
+          return;
+        }
+      }
+
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ post: results.rows[0] }));
-    } catch (err: any) {
-      process.stderr.write(
-        `[getPost] ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+      res.end(JSON.stringify({ post }));
+    } catch (err) {
+      console.error("[posts.controller.getPost] Failed to fetch post", err);
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: "Failed to fetch post." }));
     }
   },
 
   async getFilteredPosts(
-    _req: IncomingMessage,
+    req: IncomingMessage,
     res: ServerResponse,
     url: URL,
   ): Promise<void> {
     try {
-      const page = parseInt(url.searchParams.get("page") || "1", 10);
+      const rawPage = parseInt(url.searchParams.get("page") || "1", 10);
+      const page = Number.isNaN(rawPage) || rawPage < 1 ? 1 : rawPage;
       const limit = 12;
 
       const searchQuery = url.searchParams.get("q") || null;
       const category = url.searchParams.get("category") || null;
       const subcategory = url.searchParams.get("subcategory") || null;
+      const featuredOnly = url.searchParams.get("featured") === "true";
+
+      const requestedDrafts = url.searchParams.get("include_drafts") === "true";
+      let includeDrafts = false;
+      if (requestedDrafts) {
+        const verifyResult = await verifySession(
+          req.headers.authorization,
+          "getFilteredPostsDrafts",
+        );
+        if (verifyResult.ok) {
+          includeDrafts = true;
+        }
+      }
 
       const tagString = url.searchParams.get("tag");
       let tagsArray: string[] | null = null;
       if (tagString) {
         tagsArray = tagString
           .split(",")
-          .map((t) => t.trim())
+          .map((t) => t.trim().toLowerCase())
           .filter(Boolean);
       }
 
@@ -321,9 +303,10 @@ export const postsController = {
         category,
         subcategory,
         tagsArray,
+        featuredOnly,
+        includeDrafts,
         sortBy,
         sortOrder,
-        null,
       );
 
       res.statusCode = 200;
@@ -332,25 +315,25 @@ export const postsController = {
         JSON.stringify({
           posts: results.rows,
           total: results.totalCount,
-          page: page,
+          page,
           totalPages: Math.ceil(results.totalCount / limit),
         }),
       );
-    } catch (err: any) {
-      process.stderr.write(
-        `[getFilteredPosts] ERROR: ${err.message}\nStack: ${err.stack}\n`,
+    } catch (err) {
+      console.error(
+        "[posts.controller.getFilteredPosts] Failed to filter posts",
+        err,
       );
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: "Failed to fetch posts." }));
     }
   },
 
   async createPost(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
-      const verifyResult = await verifyAccessToken(
+      const verifyResult = await verifySession(
         req.headers.authorization,
-        ACCESS_TOKEN_SECRET as string,
         "createPost",
       );
       if (!verifyResult.ok) {
@@ -359,76 +342,64 @@ export const postsController = {
         res.end(JSON.stringify(verifyResult.body));
         return;
       }
-      const decoded = verifyResult.decoded;
 
-      if (decoded.role !== "admin" && decoded.role !== "super_admin") {
-        process.stderr.write(
-          `[createPost] Forbidden: user=${decoded.id} role=${decoded.role} attempted to create a post.\n`,
-        );
-        res.statusCode = 403;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({ error: "Forbidden: Only admins can create posts." }),
-        );
-        return;
-      }
       let data: CreatePostDTO;
       try {
         data = (await json(req)) as CreatePostDTO;
-      } catch (err: any) {
-        process.stderr.write(`[createPost] JSON Parse Error: ${err.message}\n`);
+      } catch (err) {
+        console.error("[posts.controller.createPost] JSON parse failed", err);
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({ error: `Invalid JSON format: ${err.message}` }),
-        );
+        res.end(JSON.stringify({ error: "Invalid JSON format." }));
         return;
       }
 
-      if (!data.title || data.title.length < 5 || data.title.length > 150) {
+      const trimmedTitle = data.title?.trim() || "";
+      if (trimmedTitle.length < 5 || trimmedTitle.length > 150) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "Title must be 5-150 characters." }));
         return;
       }
-      if (
-        !data.short_description ||
-        data.short_description.length < 10 ||
-        data.short_description.length > 300
-      ) {
+
+      const trimmedDescription = data.short_description?.trim() || "";
+      if (trimmedDescription.length < 10 || trimmedDescription.length > 300) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(
           JSON.stringify({ error: "Description must be 10-300 characters." }),
         );
         return;
       }
+
       if (
         !data.main_content ||
         data.main_content.length < 50 ||
-        data.main_content.length > 15000
+        data.main_content.length > 40000
       ) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(
-          JSON.stringify({ error: "Content must be 50-15,000 characters." }),
+          JSON.stringify({ error: "Content must be 50-40,000 characters." }),
         );
         return;
       }
 
-      if (data.thumbnail && data.thumbnail.length > 2048) {
+      if (!data.category || !VALID_CATEGORIES.includes(data.category)) {
         res.statusCode = 400;
-        res.end(
-          JSON.stringify({ error: "Thumbnail URL too long (max 2048)." }),
-        );
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Invalid post category." }));
         return;
       }
-      if (data.thumbnail && !URL_REGEX.test(data.thumbnail)) {
+
+      if (
+        !data.thumbnail ||
+        data.thumbnail.length > 2048 ||
+        !URL_REGEX.test(data.thumbnail) ||
+        !IMAGE_REGEX.test(data.thumbnail)
+      ) {
         res.statusCode = 400;
-        res.end(
-          JSON.stringify({ error: "Thumbnail must be a valid image URL." }),
-        );
-        return;
-      }
-      if (data.thumbnail && !IMAGE_REGEX.test(data.thumbnail)) {
-        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(
           JSON.stringify({ error: "Thumbnail must be a valid image URL." }),
         );
@@ -441,9 +412,11 @@ export const postsController = {
         data.post_images.length > 5
       ) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "Provide between 1 and 5 images." }));
         return;
       }
+
       const uniquePostImageUrls = new Set<string>();
       for (const url of data.post_images) {
         if (
@@ -453,6 +426,7 @@ export const postsController = {
           !IMAGE_REGEX.test(url)
         ) {
           res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
           res.end(
             JSON.stringify({
               error: "Invalid or too long image URL in gallery.",
@@ -462,6 +436,7 @@ export const postsController = {
         }
         if (uniquePostImageUrls.has(url)) {
           res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify({ error: "Duplicate image URL in gallery." }));
           return;
         }
@@ -474,19 +449,25 @@ export const postsController = {
         data.tags.length > 5
       ) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "Provide between 1 and 5 tags." }));
         return;
       }
+
+      const normalizedTags: string[] = [];
       const uniqueTags = new Set<string>();
       for (const tag of data.tags) {
-        const cleaned = tag.trim();
+        const cleaned = String(tag || "")
+          .trim()
+          .toLowerCase();
         if (
           cleaned.includes(" ") ||
           cleaned.length < 2 ||
           cleaned.length > 25 ||
-          uniqueTags.has(cleaned.toLowerCase())
+          uniqueTags.has(cleaned)
         ) {
           res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
           res.end(
             JSON.stringify({
               error: "Tags must be unique, 2-25 chars, and no spaces.",
@@ -494,7 +475,8 @@ export const postsController = {
           );
           return;
         }
-        uniqueTags.add(cleaned.toLowerCase());
+        uniqueTags.add(cleaned);
+        normalizedTags.push(cleaned);
       }
 
       if (
@@ -503,6 +485,7 @@ export const postsController = {
           !URL_REGEX.test(data.external_link))
       ) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ error: "Invalid or too long external URL." }));
         return;
       }
@@ -512,10 +495,11 @@ export const postsController = {
         (data.github_link.length > 2048 || !GITHUB_REGEX.test(data.github_link))
       ) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(
           JSON.stringify({
             error:
-              "Invalid GitHub link. Expected: github.com/username/reponame or the error is due to too long GitHub URL.",
+              "Invalid GitHub link. Expected: github.com/username/reponame.",
           }),
         );
         return;
@@ -527,6 +511,7 @@ export const postsController = {
           !["serious", "random"].includes(data.subcategory)
         ) {
           res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
           res.end(
             JSON.stringify({ error: "Subcategory required for projects." }),
           );
@@ -534,6 +519,7 @@ export const postsController = {
         }
         if (data.subcategory === "serious" && !data.github_link) {
           res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
           res.end(
             JSON.stringify({
               error: "Serious projects must have a GitHub link.",
@@ -543,6 +529,7 @@ export const postsController = {
         }
       } else if (data.subcategory) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(
           JSON.stringify({
             error: "Subcategory is only allowed for projects.",
@@ -551,47 +538,90 @@ export const postsController = {
         return;
       }
 
-      if (process.env["NODE_ENV"] !== "development") {
-        try {
-          const createLimitKey = `ratelimit:createpost:${decoded.id}`;
-          const createsCount = await redisClient.incr(createLimitKey);
-          if (createsCount === 1) {
-            await redisClient.expire(createLimitKey, 3600);
-          }
-          if (createsCount > 5) {
-            res.statusCode = 429;
-            res.setHeader("Content-Type", "application/json");
-            res.end(
-              JSON.stringify({
-                error:
-                  "Creation limit exceeded. Maximum 5 posts per hour to prevent database abuse.",
-              }),
-            );
-            return;
-          }
-        } catch (err: any) {
-          process.stderr.write(
-            `[createPost] Redis Error: ${err.message}\nStack: ${err.stack}\n`,
+      if (
+        data.is_published !== undefined &&
+        typeof data.is_published !== "boolean"
+      ) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "is_published must be a boolean." }));
+        return;
+      }
+
+      if (data.featured !== undefined && typeof data.featured !== "boolean") {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "featured must be a boolean." }));
+        return;
+      }
+
+      let baseSlug = "";
+      if (data.slug !== undefined && data.slug !== null && data.slug !== "") {
+        const providedSlug = data.slug.trim().toLowerCase();
+        if (
+          providedSlug.length < 3 ||
+          providedSlug.length > 100 ||
+          !SLUG_REGEX.test(providedSlug)
+        ) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              error:
+                "Slug must be 3-100 characters of lowercase letters, numbers, and hyphens.",
+            }),
           );
+          return;
+        }
+        baseSlug = providedSlug;
+      } else {
+        const generated = trimmedTitle
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 80)
+          .replace(/-+$/g, "");
+        baseSlug =
+          generated.length >= 3
+            ? generated
+            : `post-${crypto.randomBytes(3).toString("hex")}`;
+      }
+
+      let createdPost: Post | null = null;
+      let candidateSlug = baseSlug;
+
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        try {
+          const result = await postsService.createPost({
+            ...data,
+            title: trimmedTitle,
+            short_description: trimmedDescription,
+            tags: normalizedTags,
+            slug: candidateSlug,
+          });
+          createdPost = result.rows[0] as Post;
+          break;
+        } catch (insertErr: any) {
+          if (insertErr?.code === "23505" && attempt < 5) {
+            const randomSuffix = crypto.randomBytes(3).toString("hex");
+            candidateSlug = `${baseSlug.slice(0, 80)}-${randomSuffix}`;
+            continue;
+          }
+          throw insertErr;
         }
       }
-      const result = await postsService.createPost({
-        ...data,
-        author_id: decoded.id,
-      });
+
       res.statusCode = 201;
       res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({ message: "Post created", post: result.rows[0] }),
-      );
-    } catch (err: any) {
-      process.stderr.write(
-        `[createPost] CRITICAL ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+      res.end(JSON.stringify({ message: "Post created", post: createdPost }));
+    } catch (err) {
+      console.error("[posts.controller.createPost] Failed to create post", err);
       res.statusCode = 500;
-      res.end(JSON.stringify({ error: err.message }));
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Failed to create post." }));
     }
   },
+
   async updatePost(
     req: IncomingMessage,
     res: ServerResponse,
@@ -604,9 +634,9 @@ export const postsController = {
         res.end(JSON.stringify({ error: "Invalid post id format." }));
         return;
       }
-      const verifyResult = await verifyAccessToken(
+
+      const verifyResult = await verifySession(
         req.headers.authorization,
-        ACCESS_TOKEN_SECRET as string,
         "updatePost",
       );
       if (!verifyResult.ok) {
@@ -615,84 +645,112 @@ export const postsController = {
         res.end(JSON.stringify(verifyResult.body));
         return;
       }
-      const decoded = verifyResult.decoded;
 
       const existing = await postsService.getPost(postId);
       if (existing.rows.length === 0) {
         res.statusCode = 404;
-        res.end(JSON.stringify({ error: "Post not found" }));
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Post not found." }));
         return;
       }
 
       const post = existing.rows[0] as Post;
 
-      if (post.author_id !== decoded.id && decoded.role !== "super_admin") {
-        res.statusCode = 403;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            error: "Forbidden: You are not the author or a Super Admin.",
-          }),
-        );
-        return;
-      }
-
       let incomingData: UpdatePostDTO;
       try {
         incomingData = (await json(req)) as UpdatePostDTO;
-      } catch (err: any) {
-        process.stderr.write(`[updatePost] JSON Parse Error: ${err.message}\n`);
+      } catch (err) {
+        console.error("[posts.controller.updatePost] JSON parse failed", err);
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Invalid JSON format." }));
+        return;
+      }
+
+      if (incomingData.category !== undefined) {
+        if (!VALID_CATEGORIES.includes(incomingData.category)) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: "Invalid post category." }));
+          return;
+        }
+      }
+
+      if (incomingData.title !== undefined) {
+        const trimmedTitle = incomingData.title.trim();
+        if (trimmedTitle.length < 5 || trimmedTitle.length > 150) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: "Title must be 5-150 characters." }));
+          return;
+        }
+        incomingData.title = trimmedTitle;
+      }
+
+      if (incomingData.short_description !== undefined) {
+        const trimmedDesc = incomingData.short_description.trim();
+        if (trimmedDesc.length < 10 || trimmedDesc.length > 300) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              error: "Description must be 10-300 characters.",
+            }),
+          );
+          return;
+        }
+        incomingData.short_description = trimmedDesc;
+      }
+
+      if (
+        incomingData.main_content !== undefined &&
+        (incomingData.main_content.length < 50 ||
+          incomingData.main_content.length > 40000)
+      ) {
         res.statusCode = 400;
         res.setHeader("Content-Type", "application/json");
         res.end(
-          JSON.stringify({ error: `Invalid JSON format: ${err.message}` }),
+          JSON.stringify({ error: "Content must be 50-40,000 characters." }),
         );
         return;
       }
 
       if (
-        incomingData.title &&
-        (incomingData.title.length < 5 || incomingData.title.length > 150)
-      ) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ error: "Invalid title length." }));
-        return;
-      }
-
-      if (
-        incomingData.main_content &&
-        (incomingData.main_content.length < 50 ||
-          incomingData.main_content.length > 15000)
-      ) {
-        res.statusCode = 400;
-        res.end(
-          JSON.stringify({ error: "Content must be 50-15,000 characters." }),
-        );
-        return;
-      }
-
-      if (
-        incomingData.thumbnail &&
-        (incomingData.thumbnail.length > 2048 ||
+        incomingData.thumbnail !== undefined &&
+        (!incomingData.thumbnail ||
+          incomingData.thumbnail.length > 2048 ||
           !URL_REGEX.test(incomingData.thumbnail) ||
           !IMAGE_REGEX.test(incomingData.thumbnail))
       ) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(
           JSON.stringify({ error: "Invalid or too long thumbnail URL." }),
         );
         return;
       }
-      if (incomingData.post_images) {
+
+      if (incomingData.post_images !== undefined) {
+        if (
+          !Array.isArray(incomingData.post_images) ||
+          incomingData.post_images.length < 1 ||
+          incomingData.post_images.length > 5
+        ) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: "Provide between 1 and 5 images." }));
+          return;
+        }
         const uniqueUpdatedImageUrls = new Set<string>();
         for (const url of incomingData.post_images) {
           if (
-            url &&
-            (url.length > 2048 ||
-              !URL_REGEX.test(url) ||
-              !IMAGE_REGEX.test(url))
+            !url ||
+            url.length > 2048 ||
+            !URL_REGEX.test(url) ||
+            !IMAGE_REGEX.test(url)
           ) {
             res.statusCode = 400;
+            res.setHeader("Content-Type", "application/json");
             res.end(
               JSON.stringify({
                 error: "Invalid or too long image URL in gallery.",
@@ -700,46 +758,112 @@ export const postsController = {
             );
             return;
           }
-          if (url && uniqueUpdatedImageUrls.has(url)) {
+          if (uniqueUpdatedImageUrls.has(url)) {
             res.statusCode = 400;
+            res.setHeader("Content-Type", "application/json");
             res.end(
               JSON.stringify({ error: "Duplicate image URL in gallery." }),
             );
             return;
           }
-          if (url) uniqueUpdatedImageUrls.add(url);
+          uniqueUpdatedImageUrls.add(url);
         }
       }
 
-      if (incomingData.tags) {
+      if (incomingData.tags !== undefined) {
+        if (
+          !Array.isArray(incomingData.tags) ||
+          incomingData.tags.length < 1 ||
+          incomingData.tags.length > 5
+        ) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: "Provide between 1 and 5 tags." }));
+          return;
+        }
         const unique = new Set<string>();
+        const cleanedTags: string[] = [];
         for (const t of incomingData.tags) {
+          const cleaned = String(t || "")
+            .trim()
+            .toLowerCase();
           if (
-            t.includes(" ") ||
-            t.length < 2 ||
-            t.length > 25 ||
-            unique.has(t.toLowerCase())
+            cleaned.includes(" ") ||
+            cleaned.length < 2 ||
+            cleaned.length > 25 ||
+            unique.has(cleaned)
           ) {
             res.statusCode = 400;
-            res.end(JSON.stringify({ error: "Invalid or duplicate tags." }));
+            res.setHeader("Content-Type", "application/json");
+            res.end(
+              JSON.stringify({
+                error: "Tags must be unique, 2-25 chars, and no spaces.",
+              }),
+            );
             return;
           }
-          unique.add(t.toLowerCase());
+          unique.add(cleaned);
+          cleanedTags.push(cleaned);
+        }
+        incomingData.tags = cleanedTags;
+      }
+
+      if (
+        incomingData.external_link !== undefined &&
+        incomingData.external_link !== null &&
+        incomingData.external_link !== ""
+      ) {
+        if (
+          incomingData.external_link.length > 2048 ||
+          !URL_REGEX.test(incomingData.external_link)
+        ) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({ error: "Invalid or too long external URL." }),
+          );
+          return;
         }
       }
 
       if (
-        incomingData.github_link &&
-        (incomingData.github_link.length > 2048 ||
-          !GITHUB_REGEX.test(incomingData.github_link))
+        incomingData.github_link !== undefined &&
+        incomingData.github_link !== null &&
+        incomingData.github_link !== ""
+      ) {
+        if (
+          incomingData.github_link.length > 2048 ||
+          !GITHUB_REGEX.test(incomingData.github_link)
+        ) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              error:
+                "Invalid GitHub link. Expected: github.com/username/reponame.",
+            }),
+          );
+          return;
+        }
+      }
+
+      if (
+        incomingData.is_published !== undefined &&
+        typeof incomingData.is_published !== "boolean"
       ) {
         res.statusCode = 400;
-        res.end(
-          JSON.stringify({
-            error:
-              "Invalid GitHub link. Expected: github.com/username/reponame or the error is due to too long GitHub link.",
-          }),
-        );
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "is_published must be a boolean." }));
+        return;
+      }
+
+      if (
+        incomingData.featured !== undefined &&
+        typeof incomingData.featured !== "boolean"
+      ) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "featured must be a boolean." }));
         return;
       }
 
@@ -759,6 +883,7 @@ export const postsController = {
           !["serious", "random"].includes(finalSubcategory)
         ) {
           res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
           res.end(
             JSON.stringify({ error: "Subcategory required for projects." }),
           );
@@ -766,6 +891,7 @@ export const postsController = {
         }
         if (finalSubcategory === "serious" && !finalGithubLink) {
           res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
           res.end(
             JSON.stringify({
               error: "Serious projects must have a GitHub link.",
@@ -775,6 +901,7 @@ export const postsController = {
         }
       } else if (finalSubcategory) {
         res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
         res.end(
           JSON.stringify({
             error: "Subcategory is only allowed for projects.",
@@ -786,6 +913,8 @@ export const postsController = {
       const ALLOWED = [
         "category",
         "subcategory",
+        "is_published",
+        "featured",
         "thumbnail",
         "post_images",
         "title",
@@ -799,11 +928,18 @@ export const postsController = {
       const keys = Object.keys(incomingData).filter((k) => ALLOWED.includes(k));
       if (keys.length === 0) {
         res.statusCode = 400;
-        res.end(JSON.stringify({ error: "No valid fields." }));
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "No valid fields provided." }));
         return;
       }
 
-      const values = keys.map((k) => (incomingData as any)[k]);
+      const values = keys.map((k) => {
+        const val = (incomingData as any)[k];
+        if ((k === "external_link" || k === "github_link") && val === "") {
+          return null;
+        }
+        return val;
+      });
       const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
 
       const result = await postsService.updatePost(setClause, [
@@ -812,9 +948,17 @@ export const postsController = {
       ]);
       if (result.rows.length === 0) {
         res.statusCode = 404;
-        res.end(JSON.stringify({ error: "Post not found" }));
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Post not found." }));
         return;
       }
+
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({ message: "Post updated", post: result.rows[0] }),
+      );
+
       const oldImageUrls = [post.thumbnail, ...(post.post_images || [])];
       const newImageUrls = [
         incomingData.thumbnail !== undefined
@@ -827,6 +971,7 @@ export const postsController = {
       const removedImageUrls = oldImageUrls.filter(
         (url) => url && !newImageUrls.includes(url),
       );
+
       for (const imageUrl of removedImageUrls) {
         if (!imageUrl || !imageUrl.includes("cloudinary.com")) continue;
         try {
@@ -834,28 +979,21 @@ export const postsController = {
           const afterUploadRaw = urlPartsAfterUpload[1];
           if (urlPartsAfterUpload.length === 2 && afterUploadRaw) {
             const afterUpload = afterUploadRaw.replace(/^v\d+\//, "");
-
             const publicId = afterUpload.replace(/\.[^/.]+$/, "");
-
             await mediaStorage.uploader.destroy(publicId);
           }
-        } catch (cloudinaryErr: any) {
-          process.stderr.write(
-            `[updatePost] Cloudinary cleanup failed for replaced image=${imageUrl} post=${postId}: ${cloudinaryErr.message}\nStack: ${cloudinaryErr.stack}\n`,
+        } catch (cloudinaryErr) {
+          console.error(
+            `[posts.controller.updatePost] Cloudinary cleanup failed for image=${imageUrl} post=${postId}`,
+            cloudinaryErr,
           );
         }
       }
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({ message: "Post updated", post: result.rows[0] }),
-      );
-    } catch (err: any) {
-      process.stderr.write(
-        `[updatePost] CRITICAL ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+    } catch (err) {
+      console.error("[posts.controller.updatePost] Failed to update post", err);
       res.statusCode = 500;
-      res.end(JSON.stringify({ error: err.message }));
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Failed to update post." }));
     }
   },
 
@@ -871,9 +1009,9 @@ export const postsController = {
         res.end(JSON.stringify({ error: "Invalid post id format." }));
         return;
       }
-      const verifyResult = await verifyAccessToken(
+
+      const verifyResult = await verifySession(
         req.headers.authorization,
-        ACCESS_TOKEN_SECRET as string,
         "deletePost",
       );
       if (!verifyResult.ok) {
@@ -882,34 +1020,29 @@ export const postsController = {
         res.end(JSON.stringify(verifyResult.body));
         return;
       }
-      const decoded = verifyResult.decoded;
 
       const existing = await postsService.getPost(postId);
       if (existing.rows.length === 0) {
         res.statusCode = 404;
-        res.end(JSON.stringify({ error: "Post not found" }));
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Post not found." }));
         return;
       }
 
       const post = existing.rows[0] as Post;
 
-      if (post.author_id !== decoded.id && decoded.role !== "super_admin") {
-        res.statusCode = 403;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify({
-            error: "Forbidden: You are not the author or a Super Admin.",
-          }),
-        );
-        return;
-      }
-
       const result = await postsService.deletePost(postId);
       if (result.rowCount === 0) {
         res.statusCode = 404;
-        res.end(JSON.stringify({ error: "Post not found" }));
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ error: "Post not found." }));
         return;
       }
+
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ message: "Post deleted" }));
+
       const allImageUrlsToClean = [post.thumbnail, ...(post.post_images || [])];
       for (const imageUrl of allImageUrlsToClean) {
         if (!imageUrl || !imageUrl.includes("cloudinary.com")) continue;
@@ -919,161 +1052,20 @@ export const postsController = {
           if (urlPartsAfterUpload.length === 2 && afterUploadRaw) {
             const afterUpload = afterUploadRaw.replace(/^v\d+\//, "");
             const publicId = afterUpload.replace(/\.[^/.]+$/, "");
-
             await mediaStorage.uploader.destroy(publicId);
           }
-        } catch (cloudinaryErr: any) {
-          process.stderr.write(
-            `[deletePost] Cloudinary cleanup failed for image=${imageUrl} post=${postId}: ${cloudinaryErr.message}\nStack: ${cloudinaryErr.stack}\n`,
+        } catch (cloudinaryErr) {
+          console.error(
+            `[posts.controller.deletePost] Cloudinary cleanup failed for image=${imageUrl} post=${postId}`,
+            cloudinaryErr,
           );
         }
       }
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ message: "Post deleted" }));
-    } catch (err: any) {
-      process.stderr.write(
-        `[deletePost] CRITICAL ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
-      res.statusCode = 500;
-      res.end(JSON.stringify({ error: err.message }));
-    }
-  },
-
-  async getOwnPosts(
-    req: IncomingMessage,
-    res: ServerResponse,
-    url: URL,
-  ): Promise<void> {
-    try {
-      const verifyResult = await verifyAccessToken(
-        req.headers.authorization,
-        ACCESS_TOKEN_SECRET as string,
-        "getOwnPosts",
-      );
-      if (!verifyResult.ok) {
-        res.statusCode = verifyResult.statusCode;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify(verifyResult.body));
-        return;
-      }
-      const decoded = verifyResult.decoded;
-
-      const page = parseInt(url.searchParams.get("page") || "1", 10);
-      const limit = 12;
-
-      const searchQuery = url.searchParams.get("q") || null;
-      const category = url.searchParams.get("category") || null;
-      const subcategory = url.searchParams.get("subcategory") || null;
-
-      const tagString = url.searchParams.get("tag");
-      let tagsArray: string[] | null = null;
-      if (tagString) {
-        tagsArray = tagString
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean);
-      }
-
-      const sortBy = url.searchParams.get("sortBy") || "date";
-      const sortOrder =
-        url.searchParams.get("sortOrder")?.toUpperCase() === "ASC"
-          ? "ASC"
-          : "DESC";
-
-      const results = await postsService.getFilteredPosts(
-        page,
-        limit,
-        searchQuery,
-        category,
-        subcategory,
-        tagsArray,
-        sortBy,
-        sortOrder,
-        decoded.id,
-      );
-
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          posts: results.rows,
-          total: results.totalCount,
-          page: page,
-          totalPages: Math.ceil(results.totalCount / limit),
-        }),
-      );
-    } catch (err: any) {
-      process.stderr.write(
-        `[getOwnPosts] CRITICAL ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
-      res.statusCode = 500;
-      res.end(JSON.stringify({ error: err.message }));
-    }
-  },
-
-  async getSuperAdminSeriousProjects(
-    _req: IncomingMessage,
-    res: ServerResponse,
-    url: URL,
-  ): Promise<void> {
-    try {
-      const page = parseInt(url.searchParams.get("page") || "1", 10);
-      const limit = 12;
-
-      const results = await postsService.getSuperAdminSeriousProjects(
-        page,
-        limit,
-      );
-
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          posts: results.rows,
-          total: results.totalCount,
-          page: page,
-          totalPages: Math.ceil(results.totalCount / limit),
-        }),
-      );
-    } catch (err: any) {
-      process.stderr.write(
-        `[getSuperAdminSeriousProjects] ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+    } catch (err) {
+      console.error("[posts.controller.deletePost] Failed to delete post", err);
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: err.message }));
-    }
-  },
-
-  async getSuperAdminDiary(
-    _req: IncomingMessage,
-    res: ServerResponse,
-    url: URL,
-  ): Promise<void> {
-    try {
-      const page = parseInt(url.searchParams.get("page") || "1", 10);
-      const limit = 12;
-
-      const results = await postsService.getSuperAdminDiary(page, limit);
-
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(
-        JSON.stringify({
-          posts: results.rows,
-          total: results.totalCount,
-          page: page,
-          totalPages: Math.ceil(results.totalCount / limit),
-        }),
-      );
-    } catch (err: any) {
-      process.stderr.write(
-        `[getSuperAdminDiary] ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
-      res.statusCode = 500;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: "Failed to delete post." }));
     }
   },
 
@@ -1085,40 +1077,33 @@ export const postsController = {
     try {
       const category = url.searchParams.get("category") || null;
       const subcategory = url.searchParams.get("subcategory") || null;
-      const isMine = url.searchParams.get("mine") === "true";
-      let authorId: string | null = null;
+      const requestedDrafts = url.searchParams.get("include_drafts") === "true";
 
-      if (isMine) {
-        const verifyResult = await verifyAccessToken(
+      let includeDrafts = false;
+      if (requestedDrafts) {
+        const verifyResult = await verifySession(
           req.headers.authorization,
-          ACCESS_TOKEN_SECRET as string,
-          "getTags",
+          "getTagsDrafts",
         );
-        if (!verifyResult.ok) {
-          res.statusCode = verifyResult.statusCode;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify(verifyResult.body));
-          return;
+        if (verifyResult.ok) {
+          includeDrafts = true;
         }
-        authorId = verifyResult.decoded.id;
       }
 
       const tagsList = await postsService.getAllUniqueTags(
         category,
         subcategory,
-        authorId,
+        includeDrafts,
       );
 
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify({ tags: tagsList }));
-    } catch (err: any) {
-      process.stderr.write(
-        `[getTags] ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+    } catch (err) {
+      console.error("[posts.controller.getTags] Failed to fetch tags", err);
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: err.message }));
+      res.end(JSON.stringify({ error: "Failed to fetch tags." }));
     }
   },
 };

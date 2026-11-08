@@ -2,20 +2,21 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/lib/store";
 import {
-  updateUser,
+  setUser,
+  setSessionToken,
   logout as logoutAction,
 } from "@/lib/features/auth/authSlice";
 import {
-  useUpdateAccountMutation,
+  useUpdateProfileMutation,
   useChangePasswordMutation,
-  useDeleteAccountMutation,
   useLogoutMutation,
   useUploadAvatarMutation,
 } from "@/lib/features/auth/authApiSlice";
+import { postsApiSlice } from "@/lib/features/posts/postsApiSlice";
 import {
   updateSchema,
   changePasswordSchema,
@@ -25,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import {
-  Trash2,
   Eye,
   EyeOff,
   AlertTriangle,
@@ -41,35 +41,24 @@ import { cn } from "@/lib/utils";
 import AuthGuard from "@/components/shared/AuthGuard";
 
 type UpdatingTarget =
-  | "profile"
-  | "upload-avatar"
-  | "password"
-  | "delete"
-  | "logout"
-  | null;
-
-const ADMIN_PASSWORD_OVERRIDE_PLACEHOLDER = "admin-override-placeholder-value";
+  "profile" | "upload-avatar" | "password" | "logout" | null;
 
 export default function Me() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const dispatch = useDispatch();
 
-  const { user } = useSelector((state: RootState) => state.auth as any);
+  const { user } = useSelector((state: RootState) => state.auth);
 
-  const targetId = searchParams.get("id");
-  const isEditingOther = !!targetId && user?.role === "super_admin";
-
-  const [updateAccount, { isLoading: isUpdatingProfile }] =
-    useUpdateAccountMutation();
+  const [updateProfile, { isLoading: isUpdatingProfile }] =
+    useUpdateProfileMutation();
   const [uploadAvatar, { isLoading: isUploadingAvatar }] =
     useUploadAvatarMutation();
   const [changePassword, { isLoading: isChangingPassword }] =
     useChangePasswordMutation();
-  const [deleteAccount, { isLoading: isDeleting }] = useDeleteAccountMutation();
   const [logoutApi] = useLogoutMutation();
 
   const [username, setUsername] = useState(user?.username || "");
+  const [displayName, setDisplayName] = useState(user?.display_name || "");
   const [profileTitle, setProfileTitle] = useState(user?.profile_title || "");
   const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || "");
   const [avatarInput, setAvatarInput] = useState("");
@@ -80,7 +69,6 @@ export default function Me() {
 
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -95,16 +83,16 @@ export default function Me() {
     isUpdatingProfile ||
     isUploadingAvatar ||
     isChangingPassword ||
-    isDeleting ||
     updatingTarget === "logout";
 
   useEffect(() => {
-    if (user && !isEditingOther) {
-      setUsername(user.username);
+    if (user) {
+      setUsername(user.username || "");
+      setDisplayName(user.display_name || "");
       setProfileTitle(user.profile_title || "");
       setAvatarUrl(user.avatar_url || "");
     }
-  }, [user, isEditingOther]);
+  }, [user]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -112,8 +100,9 @@ export default function Me() {
 
       const profileVal = updateSchema.safeParse({
         username,
-        profileTitle,
-        avatarUrl,
+        display_name: displayName,
+        profile_title: profileTitle,
+        avatar_url: avatarUrl,
       });
 
       if (!profileVal.success) {
@@ -122,11 +111,9 @@ export default function Me() {
         });
       }
 
-      if (newPassword || currentPassword) {
+      if (newPassword || confirmPassword) {
         const passVal = changePasswordSchema.safeParse({
-          currentPassword: isEditingOther
-            ? ADMIN_PASSWORD_OVERRIDE_PLACEHOLDER
-            : currentPassword,
+          currentPassword,
           newPassword,
           confirmPassword,
         });
@@ -141,17 +128,18 @@ export default function Me() {
     return () => clearTimeout(timer);
   }, [
     username,
+    displayName,
     profileTitle,
     avatarUrl,
     currentPassword,
     newPassword,
     confirmPassword,
-    isEditingOther,
   ]);
 
   const flashSuccess = (msg: string) => {
     setSuccess(msg);
     setError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
     setTimeout(() => setSuccess(""), 3000);
   };
 
@@ -159,8 +147,8 @@ export default function Me() {
     setUpdatingTarget("logout");
     try {
       await logoutApi().unwrap();
-    } catch {
-      /* ignored */
+    } catch (err) {
+      console.error("[Me.handleLogout] Logout request failed", err);
     } finally {
       dispatch(logoutAction());
       router.push("/auth");
@@ -190,10 +178,7 @@ export default function Me() {
     formData.append("file", file);
 
     try {
-      const result = await uploadAvatar({
-        id: isEditingOther ? targetId || undefined : undefined,
-        formData,
-      }).unwrap();
+      const result = await uploadAvatar(formData).unwrap();
 
       setAvatarUrl(result.url);
       setAvatarInput("");
@@ -201,8 +186,9 @@ export default function Me() {
         "Image uploaded to Cloudinary. Click 'Update Profile' to save.",
       );
     } catch (err: any) {
+      console.error("[Me.handleImageUpload] Avatar upload failed", err);
       setProfileFormError(
-        err.data?.error || "Failed to upload image to server.",
+        err?.data?.error || "Failed to upload image to server.",
       );
     } finally {
       setUpdatingTarget(null);
@@ -214,8 +200,9 @@ export default function Me() {
     setProfileFormError("");
     const validation = updateSchema.safeParse({
       username,
-      profileTitle,
-      avatarUrl,
+      display_name: displayName,
+      profile_title: profileTitle,
+      avatar_url: avatarUrl,
     });
 
     if (!validation.success) {
@@ -228,37 +215,27 @@ export default function Me() {
 
     setUpdatingTarget("profile");
     try {
-      const payload: any = {
-        username,
-        profileTitle,
-        avatarUrl,
-        id: isEditingOther ? targetId || undefined : undefined,
-      };
+      const result = await updateProfile({
+        username: validation.data.username,
+        display_name: validation.data.display_name,
+        profile_title: validation.data.profile_title,
+        avatar_url: validation.data.avatar_url ?? "",
+      }).unwrap();
 
-      const result = await updateAccount(payload).unwrap();
-
-      if (!isEditingOther) {
-        dispatch(updateUser(result.user));
-      }
+      dispatch(setUser(result.user));
+      dispatch(postsApiSlice.util.invalidateTags(["Post"]));
 
       setAvatarUrl(result.user.avatar_url || "");
-      flashSuccess(
-        isEditingOther
-          ? "User profile updated."
-          : "Profile updated successfully.",
-      );
+      flashSuccess("Profile updated successfully.");
     } catch (err: any) {
-      if (err.status === 409 && err.data?.code === "USERNAME_TAKEN") {
-        setProfileFormError(
-          err.data?.error || "Username already taken. Pick a different one.",
-        );
-      } else if (err.status === "FETCH_ERROR" || err.status === undefined) {
+      console.error("[Me.handleUpdateProfile] Update profile failed", err);
+      if (err?.status === "FETCH_ERROR" || err?.status === undefined) {
         setProfileFormError(
           "Couldn't reach the server. Check your connection and try again.",
         );
       } else {
         setProfileFormError(
-          err.data?.error ||
+          err?.data?.error ||
             "Failed to update profile. Server rejected the request.",
         );
       }
@@ -271,7 +248,7 @@ export default function Me() {
     setPasswordFormError("");
 
     const validation = changePasswordSchema.safeParse({
-      currentPassword: isEditingOther ? "ADMIN_OVERRIDE" : currentPassword,
+      currentPassword,
       newPassword,
       confirmPassword,
     });
@@ -286,24 +263,27 @@ export default function Me() {
 
     setUpdatingTarget("password");
     try {
-      await changePassword({
-        currentPassword: isEditingOther ? undefined : currentPassword,
-        newPassword,
-        confirmPassword,
-        id: isEditingOther ? targetId || undefined : undefined,
+      const result = await changePassword({
+        currentPassword: validation.data.currentPassword,
+        newPassword: validation.data.newPassword,
+        confirmPassword: validation.data.confirmPassword,
       }).unwrap();
+
+      dispatch(
+        setSessionToken({
+          sessionToken: result.sessionToken,
+          expiresAt: result.expiresAt,
+        }),
+      );
 
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      flashSuccess(
-        isEditingOther
-          ? "User password reset successful."
-          : "Password changed successfully.",
-      );
+      flashSuccess("Password changed successfully.");
     } catch (err: any) {
+      console.error("[Me.handleUpdatePassword] Password change failed", err);
       setPasswordFormError(
-        err.data?.error ||
+        err?.data?.error ||
           "Password update failed. Server rejected the request.",
       );
     } finally {
@@ -311,32 +291,12 @@ export default function Me() {
     }
   };
 
-  const handleDeleteUser = async () => {
-    setUpdatingTarget("delete");
-    try {
-      await deleteAccount(
-        isEditingOther ? targetId || undefined : undefined,
-      ).unwrap();
-      if (!isEditingOther) {
-        dispatch(logoutAction());
-        router.push("/auth");
-      } else {
-        flashSuccess("Target account purged successfully.");
-        router.push("/admin/dashboard");
-      }
-    } catch {
-      setError("Failed to delete user.");
-    } finally {
-      setUpdatingTarget(null);
-    }
-  };
-
   return (
     <AuthGuard
-      message="Account terminal locked. Please provide credentials to access security and profile settings."
+      message="Please log in with owner credentials to manage your profile and session."
       level="critical"
     >
-      <section className="p-3 lg:p-6 min-h-screen border-3 border-double flex flex-col gap-6">
+      <section className="p-3 lg:p-6 min-h-screen border-3 border-double flex flex-col gap-6 bg-background text-foreground">
         <div className="relative border-3 border-double p-3 flex flex-col gap-3">
           <CornerFlourish className="-top-1 -left-1" />
           <CornerFlourish className="-top-1 -right-1 rotate-90" />
@@ -345,14 +305,12 @@ export default function Me() {
 
           <div className="flex gap-1 items-center text-primary">
             <h1 className="bg-primary text-primary-foreground font-bold p-1 w-fit">
-              {isEditingOther ? "Administrative Override" : "Manage Account"}
+              Manage Account :
             </h1>
           </div>
           <div className="border-l-3 border-double pl-3">
-            <p className=" font-bold">
-              {isEditingOther
-                ? `You are managing account ID: ${targetId}.`
-                : "You are the only user. Update profile or manage security settings."}
+            <p className="font-bold text-xs">
+              Update your public author identity, login username, or password.
             </p>
           </div>
         </div>
@@ -371,7 +329,7 @@ export default function Me() {
             ) : (
               <Check className="h-4 w-4 text-primary" />
             )}
-            <p className="text-sm font-bold">{error || success}</p>
+            <p className="text-xs font-bold">{error || success}</p>
           </div>
         )}
 
@@ -380,26 +338,23 @@ export default function Me() {
           <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
 
           <div className="flex gap-1 items-center text-primary">
-            <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit ">
-              {isEditingOther ? "Target User Details" : "Profile Details"}
+            <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit text-sm">
+              Profile Details :
             </h4>
           </div>
 
           <div className="border-l-3 border-double pl-3 flex flex-col gap-5">
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-bold text-primary flex items-center justify-between gap-1">
-                <span className="flex items-center gap-1">
-                  Avatar / Profile Picture
-                </span>
+              <label className="text-xs font-bold text-primary flex items-center justify-between gap-1">
+                <span>Avatar / Profile Picture</span>
                 <span
                   className={cn(
-                    "text-sm",
                     avatarInput.length > 2048
                       ? "text-destructive"
                       : "text-muted-foreground",
                   )}
                 >
-                  {avatarInput.length}/2048
+                  ({avatarInput.length}/2048)
                 </span>
               </label>
 
@@ -413,9 +368,9 @@ export default function Me() {
                       handleAddAvatarUrl();
                     }
                   }}
-                  placeholder="Paste URL or click upload icon..."
+                  placeholder="Paste image URL (.jpg, .png, .webp...) or click upload icon..."
                   maxLength={2048}
-                  className="border-3 border-double rounded-none text-sm flex-1 disabled:opacity-50"
+                  className="border-3 border-double rounded-none text-xs flex-1 disabled:opacity-50"
                   disabled={isAnyLoading}
                   autoComplete="off"
                 />
@@ -428,7 +383,7 @@ export default function Me() {
                   className="border-3 border-double rounded-none h-9 gap-1"
                 >
                   <Plus className="h-4 w-4" />
-                  <span className="text-sm">Add</span>
+                  <span className="text-xs">Add</span>
                 </Button>
                 <div
                   className={cn(
@@ -454,9 +409,9 @@ export default function Me() {
                 </div>
               </div>
 
-              {fieldErrors.avatarUrl && (
-                <p className="text-sm text-destructive font-bold mt-1">
-                  {fieldErrors.avatarUrl}
+              {fieldErrors.avatar_url && (
+                <p className="text-xs text-destructive font-bold mt-1">
+                  {fieldErrors.avatar_url}
                 </p>
               )}
 
@@ -479,59 +434,92 @@ export default function Me() {
               )}
             </div>
 
-            <div className="flex flex-col gap-1 mt-2">
-              <label className="text-sm font-bold text-primary flex justify-between items-center">
-                <span>Display Title</span>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-primary flex justify-between items-center">
+                <span>Display Name (public name shown on posts)</span>
                 <span
                   className={cn(
-                    "text-sm",
-                    profileTitle.length > 100
+                    displayName.trim().length < 2 || displayName.length > 50
                       ? "text-destructive"
                       : "text-muted-foreground",
                   )}
                 >
-                  {profileTitle.length}/100
+                  ({displayName.length}/50)
                 </span>
               </label>
               <Input
-                value={profileTitle}
-                onChange={(e) => setProfileTitle(e.target.value)}
-                placeholder="e.g. Back End Dev"
-                className="border-3 border-double rounded-none text-sm"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="e.g. Hwapyong"
+                maxLength={50}
+                className="border-3 border-double rounded-none text-xs"
                 disabled={isAnyLoading}
                 autoComplete="off"
               />
-              {fieldErrors.profileTitle && (
-                <p className="text-sm text-destructive font-bold">
-                  {fieldErrors.profileTitle}
+              {fieldErrors.display_name && (
+                <p className="text-xs text-destructive font-bold">
+                  {fieldErrors.display_name}
                 </p>
               )}
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-bold text-primary flex justify-between items-center">
-                <span>Username</span>
+              <label className="text-xs font-bold text-primary flex justify-between items-center">
+                <span>Display Title</span>
                 <span
                   className={cn(
-                    "text-sm",
-                    username.length > 20
+                    profileTitle.length > 100
                       ? "text-destructive"
                       : "text-muted-foreground",
                   )}
                 >
-                  {username.length}/20
+                  ({profileTitle.length}/100)
+                </span>
+              </label>
+              <Input
+                value={profileTitle}
+                onChange={(e) => setProfileTitle(e.target.value)}
+                placeholder="e.g. Back End & Infrastructure Engineer"
+                maxLength={100}
+                className="border-3 border-double rounded-none text-xs"
+                disabled={isAnyLoading}
+                autoComplete="off"
+              />
+              {fieldErrors.profile_title && (
+                <p className="text-xs text-destructive font-bold">
+                  {fieldErrors.profile_title}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-primary flex justify-between items-center">
+                <span>Username (private login name)</span>
+                <span
+                  className={cn(
+                    username.trim().length < 3 || username.length > 20
+                      ? "text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  ({username.length}/20)
                 </span>
               </label>
               <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="protocols_farmer"
-                className="border-3 border-double rounded-none text-sm"
+                placeholder="Your private login name"
+                maxLength={20}
+                className="border-3 border-double rounded-none text-xs"
                 disabled={isAnyLoading}
                 autoComplete="off"
               />
+              <p className="text-[11px] text-muted-foreground font-bold">
+                Note: Changing this updates the username you use to log in. It
+                is never shown publicly.
+              </p>
               {fieldErrors.username && (
-                <p className="text-sm text-destructive font-bold">
+                <p className="text-xs text-destructive font-bold">
                   {fieldErrors.username}
                 </p>
               )}
@@ -546,15 +534,13 @@ export default function Me() {
               <span>
                 {isUpdatingProfile && updatingTarget === "profile"
                   ? "Saving..."
-                  : isEditingOther
-                    ? "Update Target Profile"
-                    : "Update Profile"}
+                  : "Update Profile"}
               </span>
             </Button>
 
             {profileFormError && (
               <div className="border-3 border-double border-destructive bg-destructive/10 p-3 mt-1">
-                <p className="text-sm text-destructive font-bold flex items-center gap-2">
+                <p className="text-xs text-destructive font-bold flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 shrink-0" />
                   <span>{profileFormError}</span>
                 </p>
@@ -568,63 +554,59 @@ export default function Me() {
           <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
 
           <div className="flex gap-1 items-center text-primary">
-            <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit ">
-              {isEditingOther ? "Reset Target Password" : "Change Password"}
+            <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit text-sm">
+              Change Password :
             </h4>
           </div>
 
           <div className="border-l-3 border-double pl-3 flex flex-col gap-3">
-            {!isEditingOther && (
-              <div className="flex flex-col gap-1">
-                <label className="text-sm font-bold text-primary">
-                  Current Password
-                </label>
-                <div className="relative">
-                  <Input
-                    type={showCurrentPassword ? "text" : "password"}
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    placeholder="Enter current password"
-                    className="border-3 border-double rounded-none text-sm pr-10"
-                    disabled={isAnyLoading}
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:text-primary/70 disabled:opacity-50"
-                    tabIndex={-1}
-                    disabled={isAnyLoading}
-                  >
-                    {showCurrentPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-                {fieldErrors.currentPassword && (
-                  <p className="text-sm text-destructive font-bold">
-                    {fieldErrors.currentPassword}
-                  </p>
-                )}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-primary">
+                Current Password
+              </label>
+              <div className="relative">
+                <Input
+                  type={showCurrentPassword ? "text" : "password"}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password"
+                  className="border-3 border-double rounded-none text-xs pr-10"
+                  disabled={isAnyLoading}
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:text-primary/70 disabled:opacity-50"
+                  tabIndex={-1}
+                  disabled={isAnyLoading}
+                >
+                  {showCurrentPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
               </div>
-            )}
+              {fieldErrors.currentPassword && (
+                <p className="text-xs text-destructive font-bold">
+                  {fieldErrors.currentPassword}
+                </p>
+              )}
+            </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-bold text-primary flex justify-between items-center">
-                <span>
-                  {isEditingOther ? "New System Password" : "New Password"}
-                </span>
+              <label className="text-xs font-bold text-primary flex justify-between items-center">
+                <span>New Password</span>
                 <span
                   className={cn(
-                    "text-sm",
-                    newPassword.length > 50
+                    newPassword.length > 0 &&
+                      (newPassword.length < 6 || newPassword.length > 50)
                       ? "text-destructive"
                       : "text-muted-foreground",
                   )}
                 >
-                  {newPassword.length}/50
+                  ({newPassword.length}/50)
                 </span>
               </label>
               <div className="relative">
@@ -633,7 +615,8 @@ export default function Me() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Min. 6 characters"
-                  className="border-3 border-double rounded-none text-sm pr-10"
+                  maxLength={50}
+                  className="border-3 border-double rounded-none text-xs pr-10"
                   disabled={isAnyLoading}
                   autoComplete="new-password"
                 />
@@ -652,14 +635,14 @@ export default function Me() {
                 </button>
               </div>
               {fieldErrors.newPassword && (
-                <p className="text-sm text-destructive font-bold">
+                <p className="text-xs text-destructive font-bold">
                   {fieldErrors.newPassword}
                 </p>
               )}
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-bold text-primary">
+              <label className="text-xs font-bold text-primary">
                 Confirm New Password
               </label>
               <Input
@@ -667,12 +650,13 @@ export default function Me() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Repeat new password"
-                className="border-3 border-double rounded-none text-sm"
+                maxLength={50}
+                className="border-3 border-double rounded-none text-xs"
                 disabled={isAnyLoading}
                 autoComplete="new-password"
               />
               {fieldErrors.confirmPassword && (
-                <p className="text-sm text-destructive font-bold">
+                <p className="text-xs text-destructive font-bold">
                   {fieldErrors.confirmPassword}
                 </p>
               )}
@@ -687,15 +671,13 @@ export default function Me() {
               <span>
                 {isChangingPassword && updatingTarget === "password"
                   ? "Updating..."
-                  : isEditingOther
-                    ? "Force Password Reset"
-                    : "Change Password"}
+                  : "Change Password"}
               </span>
             </Button>
 
             {passwordFormError && (
               <div className="border-3 border-double border-destructive bg-destructive/10 p-3 mt-1">
-                <p className="text-sm text-destructive font-bold flex items-center gap-2">
+                <p className="text-xs text-destructive font-bold flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 shrink-0" />
                   <span>{passwordFormError}</span>
                 </p>
@@ -711,74 +693,27 @@ export default function Me() {
           <CornerFlourish className="-bottom-1 -right-1 rotate-180 text-destructive" />
 
           <div className="flex gap-1 items-center text-destructive">
-            <h4 className=" font-bold p-1 w-fit ">Danger Zone</h4>
+            <h4 className="bg-destructive text-destructive-foreground font-bold p-1 w-fit text-sm">
+              Session :
+            </h4>
           </div>
 
           <div className="border-l-3 border-double border-destructive pl-3 flex flex-col gap-3">
-            <p className="text-sm">
-              {isEditingOther
-                ? "Permanently purge this user account from the system."
-                : "Permanently remove your identity or end the session."}
+            <p className="text-xs font-bold">
+              End your active owner session on this browser.
             </p>
 
-            {!isEditingOther && (
-              <Button
-                onClick={handleLogout}
-                variant="outline"
-                disabled={isAnyLoading}
-                className="border-3 border-double border-destructive text-destructive rounded-none w-full sm:w-fit gap-1 hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>
-                  {updatingTarget === "logout" ? "Logging out..." : "Logout"}
-                </span>
-              </Button>
-            )}
-
-            {!showDeleteConfirm ? (
-              <Button
-                onClick={() => setShowDeleteConfirm(true)}
-                variant="outline"
-                disabled={isAnyLoading}
-                className="border-3 border-double border-destructive text-destructive rounded-none w-full sm:w-fit gap-1 hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                <span>
-                  {isEditingOther ? "Delete User Account" : "Delete My Account"}
-                </span>
-              </Button>
-            ) : (
-              <div className="flex flex-col gap-3 p-3 border-3 border-double border-destructive mt-2">
-                <p className="text-sm font-bold text-destructive flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4 shrink-0" />
-                  Are you sure? This action cannot be undone.
-                </p>
-                <div className="flex gap-3">
-                  <Button
-                    onClick={handleDeleteUser}
-                    disabled={isAnyLoading}
-                    className="border-3 border-double rounded-none bg-destructive text-destructive-foreground gap-1 flex-1 disabled:opacity-50 hover:bg-destructive/80"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    <span>
-                      {isDeleting && updatingTarget === "delete"
-                        ? "Deleting..."
-                        : isEditingOther
-                          ? "Delete User"
-                          : "Delete Account"}
-                    </span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowDeleteConfirm(false)}
-                    variant="outline"
-                    disabled={isAnyLoading}
-                    className="border-3 border-double rounded-none disabled:opacity-50 text-destructive border-destructive hover:bg-destructive/10"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
+            <Button
+              onClick={handleLogout}
+              variant="outline"
+              disabled={isAnyLoading}
+              className="border-3 border-double border-destructive text-destructive rounded-none w-full sm:w-fit gap-1 hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>
+                {updatingTarget === "logout" ? "Logging out..." : "Logout"}
+              </span>
+            </Button>
           </div>
         </div>
       </section>

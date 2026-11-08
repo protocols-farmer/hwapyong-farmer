@@ -35,32 +35,31 @@ const bioData = [
 const languageData = [
   {
     label: "languages :",
-    value:
-      "Golang, Javascript, C (for fun), Rust (for fun and optimizing some code)",
+    value: "Golang, Python, Typescript/Javascript",
   },
   {
     label: "database :",
-    value: "SQL (postgresSQL and SQLite), mongoDB (for fun)",
+    value: "SQL (postgresSQL and SQLite), mongoDB, redis",
   },
 ];
 
 const devOpsData = [
   { label: "containers :", value: "docker, kubernetes" },
-  { label: "infrastructure :", value: "terraform, ansible" },
   { label: "cloud & network :", value: "aws, gcp, cloudflare" },
   { label: "vcs / platforms :", value: "git, github and gitlab" },
-  {
-    label: " monitoring :",
-    value: " Prometheus (and PromQL), Grafana",
-  },
+  // {
+  //   label: " monitoring :",
+  //   value: " Prometheus (and PromQL), Grafana",
+  // },
+  // { label: "infrastructure :", value: "terraform, ansible" },
 ];
 
 const frontendData = [
-  { label: "core :", value: "html, css, js" },
   {
     label: "frameworks & libraries :",
-    value: "react, nextjs, tailwind and redux",
+    value: "nextjs, react, react native, tailwind, redux, zustand",
   },
+  { label: "core :", value: "html, css, js/ts" },
 ];
 
 const socialLinks = [

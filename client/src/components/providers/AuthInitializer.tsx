@@ -1,15 +1,18 @@
-//src/components/layouts/AuthInitializer.tsx
+//src/components/providers/AuthInitializer.tsx
 "use client";
 
 import React, { useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { useRefreshTokenMutation } from "@/lib/features/auth/authApiSlice";
+import { useLazyMeQuery } from "@/lib/features/auth/authApiSlice";
 import {
-  setCredentials,
+  setSessionToken,
+  setUser,
+  logout,
   completeHydration,
-  selectIsHydrated,
+  selectSessionToken,
+  selectCurrentUser,
 } from "@/lib/features/auth/authSlice";
-import { Settings } from "lucide-react";
+import { SESSION_STORAGE_KEY } from "@/lib/store";
 
 export default function AuthInitializer({
   children,
@@ -17,56 +20,121 @@ export default function AuthInitializer({
   children: React.ReactNode;
 }) {
   const dispatch = useDispatch();
-  const isHydrated = useSelector(selectIsHydrated);
-  const [refresh, { isLoading }] = useRefreshTokenMutation();
+  const sessionToken = useSelector(selectSessionToken);
+  const currentUser = useSelector(selectCurrentUser);
+  const [triggerMe] = useLazyMeQuery();
 
-  const hasAttempted = useRef(false);
+  const hasHydratedRef = useRef(false);
 
   useEffect(() => {
-    if (hasAttempted.current) return;
-    hasAttempted.current = true;
+    if (hasHydratedRef.current) return;
+    hasHydratedRef.current = true;
 
-    const initializeSession = async () => {
+    try {
+      const rawStored = window.localStorage.getItem(SESSION_STORAGE_KEY);
+      if (rawStored) {
+        const parsed = JSON.parse(rawStored) as {
+          sessionToken?: string;
+          expiresAt?: string;
+        };
+
+        const token = parsed?.sessionToken;
+        const expiresAt = parsed?.expiresAt;
+        const expiresMs = expiresAt ? new Date(expiresAt).getTime() : 0;
+
+        if (
+          token &&
+          expiresAt &&
+          !Number.isNaN(expiresMs) &&
+          expiresMs > Date.now()
+        ) {
+          dispatch(setSessionToken({ sessionToken: token, expiresAt }));
+        } else {
+          window.localStorage.removeItem(SESSION_STORAGE_KEY);
+        }
+      }
+    } catch (err) {
+      console.error(
+        "[AuthInitializer.hydrate] Failed to read stored session from localStorage",
+        err,
+      );
       try {
-        const result = await refresh().unwrap();
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      } catch (removeErr) {
+        console.error(
+          "[AuthInitializer.hydrate] Failed to clear corrupted session",
+          removeErr,
+        );
+      }
+    } finally {
+      dispatch(completeHydration());
+    }
+  }, [dispatch]);
 
-        dispatch(setCredentials(result));
-      } catch (err) {
-      } finally {
-        dispatch(completeHydration());
+  useEffect(() => {
+    if (!sessionToken || currentUser) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const syncOwnerProfile = async () => {
+      try {
+        const res = await triggerMe().unwrap();
+        if (!cancelled && res.user) {
+          dispatch(setUser(res.user));
+        }
+      } catch (err: any) {
+        console.error(
+          "[AuthInitializer.syncOwnerProfile] Background /auth/me check failed",
+          err,
+        );
+        if (!cancelled && err?.status !== 401) {
+          retryTimer = setTimeout(syncOwnerProfile, 15000);
+        }
       }
     };
 
-    initializeSession();
-  }, [dispatch, refresh]);
+    syncOwnerProfile();
 
-  if (!isHydrated || isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen w-full bg-background animate-in fade-in duration-500">
-        <div className="mx-auto flex w-full max-w-md flex-col items-center space-y-10 text-center">
-          <div className="flex h-24 w-24 items-center justify-center bg-muted border border-border/50">
-            <Settings className="h-12 w-12 animate-[spin_10s_linear_infinite] text-foreground/40" />
-          </div>
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [sessionToken, currentUser, triggerMe, dispatch]);
 
-          <div className="space-y-4 w-full">
-            <h1 className="text-4xl font-black">Authenticating session</h1>
-            <p className="text-muted-foreground font-medium text-sm ">
-              The platform is verifying your security credentials and syncing
-              your profile data. This usually takes a few moments.
-            </p>
+  useEffect(() => {
+    const handleStorageEvent = (event: StorageEvent) => {
+      if (event.key !== SESSION_STORAGE_KEY) return;
 
-            <div className="border bg-muted/20 p-6 text-sm text-left w-full space-y-3">
-              <p className="font-bold text-xs text-primary  ">Current status</p>
-              <p className="text-muted-foreground ">
-                Handshaking with system resources and synchronizing profile
-                data...
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+      if (!event.newValue) {
+        dispatch(logout());
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(event.newValue) as {
+          sessionToken?: string;
+          expiresAt?: string;
+        };
+        if (parsed?.sessionToken && parsed?.expiresAt) {
+          dispatch(
+            setSessionToken({
+              sessionToken: parsed.sessionToken,
+              expiresAt: parsed.expiresAt,
+            }),
+          );
+        }
+      } catch (err) {
+        console.error(
+          "[AuthInitializer.handleStorageEvent] Failed to parse cross-tab session",
+          err,
+        );
+      }
+    };
+
+    window.addEventListener("storage", handleStorageEvent);
+    return () => window.removeEventListener("storage", handleStorageEvent);
+  }, [dispatch]);
 
   return <>{children}</>;
 }

@@ -12,6 +12,8 @@ import {
   useGetFilteredPostsQuery,
   useGetAllTagsQuery,
 } from "@/lib/features/posts/postsApiSlice";
+import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
+import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
 
 const CardSkeleton = () => (
   <div className="relative border-3 border-double bg-card flex flex-col gap-3 p-3 justify-between h-full animate-pulse">
@@ -140,24 +142,36 @@ export default function Projects() {
     sortOrder,
   });
 
-  const { data: contextualTagsData } = useGetAllTagsQuery({
+  const {
+    data: contextualTagsData,
+    isLoading: isTagsLoading,
+    isError: isTagsError,
+  } = useGetAllTagsQuery({
     category: "projects",
     subcategory: activeTab,
   });
 
   const isPageLoading = isLoading || isFetching;
   const filteredPosts = activeData?.posts || [];
+  const totalProjects = activeData?.total ?? filteredPosts.length;
   const allAvailableTags = contextualTagsData?.tags || [];
 
   return (
-    <section className="p-3 lg:p-6 min-h-screen flex flex-col gap-6 bg-background text-foreground">
+    <section className="p-3 relative border-3 border-double lg:p-6 min-h-screen flex flex-col gap-6 bg-background text-foreground">
+      <OrnateVictoria className="-top-1 -left-1" />
+      <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+      <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+      <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
+
+      <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
+      <BorderCenterpiece className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-[60%] w-44 h-auto rotate-180 z-20" />
       <header className="relative border-3 border-double p-3 flex flex-col gap-3">
         <CornerFlourish className="-top-1 -left-1" />
         <CornerFlourish className="-top-1 -right-1 rotate-90" />
         <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
         <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
 
-        <div className=" text-primary">
+        <div className="text-primary">
           <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit uppercase">
             Projects :
           </h4>
@@ -226,6 +240,8 @@ export default function Projects() {
         clearAllFilters={() =>
           router.push(`${pathname}?tab=${activeTab}`, { scroll: false })
         }
+        isTagsLoading={isTagsLoading}
+        isTagsError={isTagsError}
       />
 
       {isError ? (
@@ -240,8 +256,7 @@ export default function Projects() {
           {!isPageLoading && (
             <div className="flex justify-between items-center">
               <span className="text-xs font-bold border-3 border-double px-2 py-1 uppercase">
-                {filteredPosts.length}{" "}
-                {filteredPosts.length === 1 ? "project" : "projects"}
+                {totalProjects} {totalProjects === 1 ? "project" : "projects"}
               </span>
             </div>
           )}

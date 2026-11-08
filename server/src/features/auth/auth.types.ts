@@ -1,43 +1,37 @@
 //src/features/auth/auth.types.ts
 
-export type UserRole = "user" | "admin" | "super_admin";
-
-export interface User {
+export interface Profile {
   id: string;
   username: string;
+  display_name: string;
   profile_title: string;
   avatar_url: string;
-  role: "super_admin" | "admin" | "user";
   password_hash: string;
   created_at: Date;
   updated_at: Date;
 }
 
-export interface RefreshTokenSession {
-  id: string;
-  user_id: string;
-  token_hash: string;
-  parent_token_id: string | null;
-  is_revoked: boolean;
-  expires_at: string;
-  user_agent: string | null;
-  ip_address: string | null;
-  created_at: string;
-  session_created_at: string;
-}
-export interface JWTPayload {
-  id: string;
-  username: string;
-  role: UserRole;
-  token_use: "access";
-  iat?: number;
-  exp?: number;
+export interface PublicProfileDTO {
+  display_name: string;
+  profile_title: string;
+  avatar_url: string;
 }
 
-export interface SignupDTO {
-  username?: string;
-  password?: string;
-  confirmPassword?: string;
+export interface OwnerProfileDTO {
+  id: string;
+  username: string;
+  display_name: string;
+  profile_title: string;
+  avatar_url: string;
+}
+
+export interface SessionRow {
+  id: string;
+  token_hash: string;
+  expires_at: Date;
+  user_agent: string | null;
+  ip_address: string | null;
+  created_at: Date;
 }
 
 export interface LoginDTO {
@@ -51,8 +45,11 @@ export interface ChangePasswordDTO {
   confirmPassword?: string;
 }
 
-export interface UpdateAccountDTO {
+export interface UpdateProfileDTO {
   username?: string;
+  display_name?: string;
   profileTitle?: string;
+  profile_title?: string;
   avatarUrl?: string;
+  avatar_url?: string;
 }

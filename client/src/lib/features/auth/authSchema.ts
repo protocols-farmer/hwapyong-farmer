@@ -15,29 +15,6 @@ export const loginSchema = z.object({
     .max(50, "Password cannot exceed 50 characters."),
 });
 
-export const signupSchema = z
-  .object({
-    username: z
-      .string()
-      .trim()
-      .min(3, "Username must be at least 3 characters.")
-      .max(20, "Username cannot exceed 20 characters.")
-      .regex(
-        /^[a-zA-Z0-9_]+$/,
-        "Username can only contain letters, numbers, and underscores.",
-      ),
-
-    password: z
-      .string()
-      .min(6, "Password must be at least 6 characters.")
-      .max(50, "Password cannot exceed 50 characters."),
-    confirmPassword: z.string().min(1, "Please confirm your password."),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords do not match.",
-    path: ["confirmPassword"],
-  });
-
 export const updateSchema = z.object({
   username: z
     .string()
@@ -50,14 +27,20 @@ export const updateSchema = z.object({
     )
     .optional(),
 
-  profileTitle: z
+  display_name: z
+    .string()
+    .trim()
+    .min(2, "Display name must be at least 2 characters.")
+    .max(50, "Display name cannot exceed 50 characters.")
+    .optional(),
+
+  profile_title: z
     .string()
     .max(100, "Profile title cannot exceed 100 characters.")
     .optional()
-
     .transform((val) => (!val || val.trim() === "" ? "Member" : val.trim())),
 
-  avatarUrl: z
+  avatar_url: z
     .string()
     .max(2048, "Avatar URL cannot exceed 2048 characters.")
     .trim()

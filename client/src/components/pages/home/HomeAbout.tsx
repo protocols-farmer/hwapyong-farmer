@@ -3,8 +3,7 @@
 import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
 import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
 import { Button } from "@/components/ui/button";
-import Link from "next/dist/client/link";
-
+import Link from "next/link"; // ✅
 function HomeAbout() {
   return (
     <div className="relative border-3 border-double  p-3 flex flex-col gap-3">
@@ -21,7 +20,7 @@ function HomeAbout() {
       </h4>
 
       <p className=" border-l-3 border-double pl-3">
-        I just like doing teachign my self stuff and doing some random research.
+        I just like doing teaching my self stuff and doing some random research.
         And also creating things bruhhhhhh the beauty fo autism. You can check
         more about me by clicking bellow button.
       </p>

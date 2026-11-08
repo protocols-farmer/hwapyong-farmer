@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import HomeProjects from "@/components/pages/home/HomeProjects";
 import AboutDiary from "@/components/pages/about/AboutDiary";
+import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
+import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
 
 const timeline = [
   {
@@ -49,7 +51,14 @@ const timeline = [
 
 export default function AboutPage() {
   return (
-    <section className="p-3 lg:p-6 min-h-screen border-3 border-double flex flex-col gap-6">
+    <section className="relative p-3 lg:p-6 min-h-screen border-3 border-double flex flex-col gap-6">
+      <OrnateVictoria className="-top-1 -left-1" />
+      <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+      <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+      <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
+
+      <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
+      <BorderCenterpiece className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-[60%] w-44 h-auto rotate-180 z-20" />
       <div className="relative border-3 border-double p-3 flex flex-col gap-3">
         <CornerFlourish className="-top-1 -left-1" />
         <CornerFlourish className="-top-1 -right-1 rotate-90" />
@@ -116,7 +125,7 @@ export default function AboutPage() {
           variant="outline"
           className="border-3 border-double rounded-none"
         >
-          <Link href="/computer">See My Work</Link>
+          <Link href="/posts/computer-science">See My Work</Link>
         </Button>
 
         <Button

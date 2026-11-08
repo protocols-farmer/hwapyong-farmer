@@ -1,21 +1,52 @@
 //src/components/layouts/sidebar/MobileBottomBar.tsx
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSelector } from "react-redux";
+import { selectIsAuthenticated } from "@/lib/features/auth/authSlice";
 import { cn } from "@/lib/utils";
 import { Plus, Home, Files, FlaskConical } from "lucide-react";
 
 const bottomNavItems = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/posts/all-posts", label: "All Posts", icon: Files },
-  { href: "/posts/projects", label: "Projects", icon: FlaskConical },
-  { href: "/posts/create", label: "Create", icon: Plus, isCentral: true },
+  { href: "/", label: "Home", icon: Home, ownerOnly: false, isCentral: false },
+  {
+    href: "/posts/all-posts",
+    label: "All Posts",
+    icon: Files,
+    ownerOnly: false,
+    isCentral: false,
+  },
+  {
+    href: "/posts/projects",
+    label: "Projects",
+    icon: FlaskConical,
+    ownerOnly: false,
+    isCentral: false,
+  },
+  {
+    href: "/posts/create-post",
+    label: "Create",
+    icon: Plus,
+    ownerOnly: true,
+    isCentral: true,
+  },
 ];
 
 export default function MobileBottomBar() {
   const pathname = usePathname();
+  const isAuthenticated = useSelector(selectIsAuthenticated);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const showOwnerItems = mounted && isAuthenticated;
+  const visibleItems = bottomNavItems.filter(
+    (item) => !item.ownerOnly || showOwnerItems,
+  );
 
   return (
     <div
@@ -25,8 +56,13 @@ export default function MobileBottomBar() {
         "pb-[env(safe-area-inset-bottom)]",
       )}
     >
-      <div className="grid h-16 grid-cols-4 items-center">
-        {bottomNavItems.map((item) => {
+      <div
+        className={cn(
+          "grid h-16 items-center",
+          showOwnerItems ? "grid-cols-4" : "grid-cols-3",
+        )}
+      >
+        {visibleItems.map((item) => {
           const isActive =
             item.href === "/"
               ? pathname === item.href

@@ -1,7 +1,11 @@
+// next.config.ts
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  reactCompiler: true,
+  reactCompiler: false,
+  experimental: {
+    turbopackFileSystemCacheForDev: false,
+  },
   images: {
     remotePatterns: [
       {

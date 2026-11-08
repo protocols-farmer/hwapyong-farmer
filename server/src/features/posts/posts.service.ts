@@ -2,67 +2,97 @@
 import { pool } from "../../db/psql.js";
 import type { CreatePostDTO } from "./posts.types.js";
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const postsService = {
-  async getAllPosts(page: number = 1, limit: number = 12) {
+  async getPost(identifier: string) {
     try {
-      const offset = (page - 1) * limit;
-      const countSql = "SELECT COUNT(*) FROM posts;";
-      const dataSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
+      const isUuid = UUID_REGEX.test(identifier);
+      const whereCondition = isUuid ? "p.id = $1::uuid" : "p.slug = $1";
+      const sql = `
+        SELECT
+          p.id,
+          p.slug,
+          p.category,
+          p.subcategory,
+          p.is_published,
+          p.featured,
+          p.thumbnail,
+          p.post_images,
+          p.title,
+          p.short_description,
+          p.main_content,
+          p.tags,
+          p.external_link,
+          p.github_link,
+          p.created_at,
+          p.updated_at,
+          u.display_name AS author_name,
+          u.profile_title AS author_title,
+          u.avatar_url AS author_avatar
         FROM posts p
-        JOIN users u ON p.author_id = u.id
-        ORDER BY p.created_at DESC 
-        LIMIT $1 OFFSET $2;
+        CROSS JOIN profile u
+        WHERE ${whereCondition}
+        LIMIT 1;
       `;
-
-      const [countRes, dataRes] = await Promise.all([
-        pool.query(countSql),
-        pool.query(dataSql, [limit, offset]),
-      ]);
-
-      return {
-        rows: dataRes.rows,
-        totalCount: parseInt(countRes.rows[0]?.count || "0", 10),
-      };
-    } catch (err: any) {
-      process.stderr.write(
-        `[postsService.getAllPosts] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+      return await pool.query(sql, [identifier]);
+    } catch (err) {
+      console.error("[posts.service.getPost] Database query failed", err);
       throw err;
     }
   },
 
-  async getPost(postId: string) {
+  async createPost(data: CreatePostDTO & { slug: string }) {
     try {
       const sql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
-        FROM posts p
-        JOIN users u ON p.author_id = u.id
-        WHERE p.id = $1;
-      `;
-      return await pool.query(sql, [postId]);
-    } catch (err: any) {
-      process.stderr.write(
-        `[postsService.getPost] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
-      throw err;
-    }
-  },
-
-  async createPost(data: CreatePostDTO & { author_id: string }) {
-    try {
-      const sql = `
-        INSERT INTO posts (
-          author_id, category, subcategory, thumbnail, post_images, 
-          title, short_description, main_content, tags, 
-          external_link, github_link
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        RETURNING *;
+        WITH inserted AS (
+          INSERT INTO posts (
+            slug,
+            category,
+            subcategory,
+            is_published,
+            featured,
+            thumbnail,
+            post_images,
+            title,
+            short_description,
+            main_content,
+            tags,
+            external_link,
+            github_link
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          RETURNING *
+        )
+        SELECT
+          i.id,
+          i.slug,
+          i.category,
+          i.subcategory,
+          i.is_published,
+          i.featured,
+          i.thumbnail,
+          i.post_images,
+          i.title,
+          i.short_description,
+          i.main_content,
+          i.tags,
+          i.external_link,
+          i.github_link,
+          i.created_at,
+          i.updated_at,
+          u.display_name AS author_name,
+          u.profile_title AS author_title,
+          u.avatar_url AS author_avatar
+        FROM inserted i
+        CROSS JOIN profile u;
       `;
       const values = [
-        data.author_id,
+        data.slug,
         data.category,
         data.subcategory || null,
+        data.is_published !== undefined ? data.is_published : true,
+        data.featured !== undefined ? data.featured : false,
         data.thumbnail,
         data.post_images,
         data.title,
@@ -73,26 +103,9 @@ export const postsService = {
         data.github_link || null,
       ];
 
-      const insertResult = await pool.query(sql, values);
-
-      if (insertResult.rows.length === 0) {
-        throw new Error("Post creation failed, no rows returned.");
-      }
-
-      const newPostId = insertResult.rows[0].id;
-
-      const fullPostSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
-        FROM posts p
-        JOIN users u ON p.author_id = u.id
-        WHERE p.id = $1;
-      `;
-
-      return await pool.query(fullPostSql, [newPostId]);
-    } catch (err: any) {
-      process.stderr.write(
-        `[postsService.createPost] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+      return await pool.query(sql, values);
+    } catch (err) {
+      console.error("[posts.service.createPost] Database insert failed", err);
       throw err;
     }
   },
@@ -100,42 +113,49 @@ export const postsService = {
   async updatePost(setClause: string, params: any[]) {
     try {
       const sql = `
-        UPDATE posts 
-        SET ${setClause}, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $${params.length}
-        RETURNING *;
+        WITH updated AS (
+          UPDATE posts
+          SET ${setClause}, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $${params.length}
+          RETURNING *
+        )
+        SELECT
+          up.id,
+          up.slug,
+          up.category,
+          up.subcategory,
+          up.is_published,
+          up.featured,
+          up.thumbnail,
+          up.post_images,
+          up.title,
+          up.short_description,
+          up.main_content,
+          up.tags,
+          up.external_link,
+          up.github_link,
+          up.created_at,
+          up.updated_at,
+          u.display_name AS author_name,
+          u.profile_title AS author_title,
+          u.avatar_url AS author_avatar
+        FROM updated up
+        CROSS JOIN profile u;
       `;
-      const updateResult = await pool.query(sql, params);
-
-      if (updateResult.rows.length === 0) {
-        return updateResult;
-      }
-
-      const updatedPostId = updateResult.rows[0].id;
-
-      const fullPostSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
-        FROM posts p
-        JOIN users u ON p.author_id = u.id
-        WHERE p.id = $1;
-      `;
-
-      return await pool.query(fullPostSql, [updatedPostId]);
-    } catch (err: any) {
-      process.stderr.write(
-        `[postsService.updatePost] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+      return await pool.query(sql, params);
+    } catch (err) {
+      console.error("[posts.service.updatePost] Database update failed", err);
       throw err;
     }
   },
 
   async deletePost(postId: string) {
     try {
-      return await pool.query("DELETE FROM posts WHERE id = $1", [postId]);
-    } catch (err: any) {
-      process.stderr.write(
-        `[postsService.deletePost] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
+      return await pool.query("DELETE FROM posts WHERE id = $1 RETURNING id;", [
+        postId,
+      ]);
+    } catch (err) {
+      console.error("[posts.service.deletePost] Database delete failed", err);
       throw err;
     }
   },
@@ -147,21 +167,24 @@ export const postsService = {
     category: string | null = null,
     subcategory: string | null = null,
     tagsArray: string[] | null = null,
+    featuredOnly: boolean = false,
+    includeDrafts: boolean = false,
     sortBy: string = "date",
     sortOrder: string = "DESC",
-    authorId: string | null = null,
   ) {
     const offset = (page - 1) * limit;
     const hasSearchQuery = !!(searchQuery && searchQuery.trim() !== "");
 
-    let whereClauses: string[] = [];
-    let queryValues: any[] = [];
+    const whereClauses: string[] = [];
+    const queryValues: any[] = [];
     let paramIndex = 1;
 
-    if (authorId && authorId.trim() !== "") {
-      whereClauses.push(`p.author_id = $${paramIndex}`);
-      queryValues.push(authorId.trim());
-      paramIndex++;
+    if (!includeDrafts) {
+      whereClauses.push(`p.is_published = true`);
+    }
+
+    if (featuredOnly) {
+      whereClauses.push(`p.featured = true`);
     }
 
     if (hasSearchQuery) {
@@ -210,42 +233,75 @@ export const postsService = {
       }
     }
 
-    const countSql = `
-      SELECT COUNT(*) 
-      FROM posts p
-      ${whereString};
-    `;
+    const thumbnailSelectExpression = includeDrafts
+      ? "p.thumbnail"
+      : `CASE
+          WHEN p.thumbnail LIKE '%cloudinary.com%/upload/%'
+           AND p.thumbnail NOT LIKE '%/upload/f_auto,q_auto,w_600/%'
+           THEN regexp_replace(p.thumbnail, '/upload/', '/upload/f_auto,q_auto,w_600/')
+          ELSE p.thumbnail
+        END AS thumbnail`;
 
     const dataSql = `
-      SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
+      SELECT
+        p.id,
+        p.slug,
+        p.title,
+        p.short_description,
+        ${thumbnailSelectExpression},
+        p.tags,
+        p.category,
+        p.subcategory,
+        p.featured,
+        p.is_published,
+        p.github_link,
+        p.external_link,
+        p.created_at,
+        p.updated_at,
+        u.display_name AS author_name,
+        u.profile_title AS author_title,
+        u.avatar_url AS author_avatar,
+        COUNT(*) OVER() AS full_count
       FROM posts p
-      JOIN users u ON p.author_id = u.id
+      CROSS JOIN profile u
       ${whereString}
       ${orderString}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
     `;
 
+    const countSql = `
+      SELECT COUNT(*) AS count
+      FROM posts p
+      ${whereString};
+    `;
+
     const finalValues = [...queryValues, limit, offset];
 
-    // SET LOCAL only works inside a transaction, and it's only needed for the
-    // trigram similarity threshold used by text search. Most filter requests
-    // (category/tag/sort with no search text) don't need a transaction or a
-    // dedicated client at all, so we skip that overhead unless there's an
-    // actual search query to run.
     if (!hasSearchQuery) {
       try {
-        const [countRes, dataRes] = await Promise.all([
-          pool.query(countSql, queryValues),
-          pool.query(dataSql, finalValues),
-        ]);
+        const dataRes = await pool.query(dataSql, finalValues);
+        let totalCount = 0;
+
+        if (dataRes.rows.length > 0) {
+          totalCount = parseInt(dataRes.rows[0].full_count || "0", 10);
+        } else if (offset > 0) {
+          const countRes = await pool.query(countSql, queryValues);
+          totalCount = parseInt(countRes.rows[0]?.count || "0", 10);
+        }
+
+        const cleanedRows = dataRes.rows.map((row) => {
+          const { full_count, ...rest } = row;
+          return rest;
+        });
 
         return {
-          rows: dataRes.rows,
-          totalCount: parseInt(countRes.rows[0]?.count || "0", 10),
+          rows: cleanedRows,
+          totalCount,
         };
-      } catch (err: any) {
-        process.stderr.write(
-          `[postsService.getFilteredPosts] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
+      } catch (err) {
+        console.error(
+          "[posts.service.getFilteredPosts] Database query failed",
+          err,
         );
         throw err;
       }
@@ -257,22 +313,39 @@ export const postsService = {
       await client.query("BEGIN;");
       await client.query("SET LOCAL pg_trgm.word_similarity_threshold = 0.3;");
 
-      const [countRes, dataRes] = await Promise.all([
-        client.query(countSql, queryValues),
-        client.query(dataSql, finalValues),
-      ]);
+      const dataRes = await client.query(dataSql, finalValues);
+      let totalCount = 0;
+
+      if (dataRes.rows.length > 0) {
+        totalCount = parseInt(dataRes.rows[0].full_count || "0", 10);
+      } else if (offset > 0) {
+        const countRes = await client.query(countSql, queryValues);
+        totalCount = parseInt(countRes.rows[0]?.count || "0", 10);
+      }
 
       await client.query("COMMIT;");
 
-      return {
-        rows: dataRes.rows,
-        totalCount: parseInt(countRes.rows[0]?.count || "0", 10),
-      };
-    } catch (err: any) {
-      await client.query("ROLLBACK;");
+      const cleanedRows = dataRes.rows.map((row) => {
+        const { full_count, ...rest } = row;
+        return rest;
+      });
 
-      process.stderr.write(
-        `[postsService.getFilteredPosts] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
+      return {
+        rows: cleanedRows,
+        totalCount,
+      };
+    } catch (err) {
+      try {
+        await client.query("ROLLBACK;");
+      } catch (rollbackErr) {
+        console.error(
+          "[posts.service.getFilteredPosts] Transaction rollback failed",
+          rollbackErr,
+        );
+      }
+      console.error(
+        "[posts.service.getFilteredPosts] Search transaction failed",
+        err,
       );
       throw err;
     } finally {
@@ -280,165 +353,60 @@ export const postsService = {
     }
   },
 
-  async getSuperAdminSeriousProjects(page: number = 1, limit: number = 12) {
-    try {
-      const offset = (page - 1) * limit;
-      const countSql = `
-        SELECT COUNT(p.id) FROM posts p
-        JOIN users u ON p.author_id = u.id
-        WHERE p.category = 'projects' AND p.subcategory = 'serious' AND u.role = 'super_admin';
-      `;
-      const dataSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
-        FROM posts p
-        JOIN users u ON p.author_id = u.id
-        WHERE p.category = 'projects' AND p.subcategory = 'serious' AND u.role = 'super_admin'
-        ORDER BY p.created_at DESC
-        LIMIT $1 OFFSET $2;
-      `;
-
-      const [countRes, dataRes] = await Promise.all([
-        pool.query(countSql),
-        pool.query(dataSql, [limit, offset]),
-      ]);
-
-      return {
-        rows: dataRes.rows,
-        totalCount: parseInt(countRes.rows[0]?.count || "0", 10),
-      };
-    } catch (err: any) {
-      process.stderr.write(
-        `[postsService.getSuperAdminSeriousProjects] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
-      throw err;
-    }
-  },
-
-  async getSuperAdminDiary(page: number = 1, limit: number = 12) {
-    try {
-      const offset = (page - 1) * limit;
-      const countSql = `
-        SELECT COUNT(p.id) FROM posts p
-        JOIN users u ON p.author_id = u.id
-        WHERE p.category = 'diary' AND u.role = 'super_admin';
-      `;
-      const dataSql = `
-        SELECT p.*, u.username AS author_name, u.profile_title AS author_title, u.avatar_url AS author_avatar, u.role AS author_role 
-        FROM posts p
-        JOIN users u ON p.author_id = u.id
-        WHERE p.category = 'diary' AND u.role = 'super_admin'
-        ORDER BY p.created_at DESC
-        LIMIT $1 OFFSET $2;
-      `;
-
-      const [countRes, dataRes] = await Promise.all([
-        pool.query(countSql),
-        pool.query(dataSql, [limit, offset]),
-      ]);
-
-      return {
-        rows: dataRes.rows,
-        totalCount: parseInt(countRes.rows[0]?.count || "0", 10),
-      };
-    } catch (err: any) {
-      process.stderr.write(
-        `[postsService.getSuperAdminDiary] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
-      );
-      throw err;
-    }
-  },
-
   async getAllUniqueTags(
     category: string | null = null,
     subcategory: string | null = null,
-    authorId: string | null = null,
+    includeDrafts: boolean = false,
   ) {
     try {
-      let sql = "";
-      let values: any[] = [];
+      const whereClauses: string[] = [];
+      const values: any[] = [];
+      let paramIndex = 1;
 
-      const hasCat = category && category !== "all" && category.trim() !== "";
-      const hasSub = subcategory && subcategory.trim() !== "";
-      const hasAuth = authorId && authorId.trim() !== "";
-
-      if (hasCat && hasSub && hasAuth) {
-        sql = `
-          SELECT DISTINCT unnest(tags) AS tag 
-          FROM posts 
-          WHERE category = $1 AND subcategory = $2 AND author_id = $3
-          ORDER BY tag ASC;
-        `;
-        values.push(category.trim(), subcategory.trim(), authorId.trim());
-      } else if (hasCat && hasSub && !hasAuth) {
-        sql = `
-          SELECT DISTINCT unnest(tags) AS tag 
-          FROM posts 
-          WHERE category = $1 AND subcategory = $2
-          ORDER BY tag ASC;
-        `;
-        values.push(category.trim(), subcategory.trim());
-      } else if (hasCat && !hasSub && hasAuth) {
-        sql = `
-          SELECT DISTINCT unnest(tags) AS tag 
-          FROM posts 
-          WHERE category = $1 AND author_id = $2
-          ORDER BY tag ASC;
-        `;
-        values.push(category.trim(), authorId.trim());
-      } else if (hasCat && !hasSub && !hasAuth) {
-        sql = `
-          SELECT DISTINCT unnest(tags) AS tag 
-          FROM posts 
-          WHERE category = $1
-          ORDER BY tag ASC;
-        `;
-        values.push(category.trim());
-      } else if (!hasCat && hasSub && hasAuth) {
-        // Subcategory without a category is meaningless (subcategory only
-        // exists under "projects"), so we drop it — but we still keep the
-        // author scoping, otherwise a "mine" tag request would silently leak
-        // every other user's tags instead of just this user's.
-        sql = `
-          SELECT DISTINCT unnest(tags) AS tag 
-          FROM posts 
-          WHERE author_id = $1
-          ORDER BY tag ASC;
-        `;
-        values.push(authorId.trim());
-      } else if (!hasCat && hasSub && !hasAuth) {
-        sql = `
-          SELECT DISTINCT unnest(tags) AS tag 
-          FROM posts 
-          ORDER BY tag ASC;
-        `;
-      } else if (!hasCat && !hasSub && hasAuth) {
-        sql = `
-          SELECT DISTINCT unnest(tags) AS tag 
-          FROM posts 
-          WHERE author_id = $1
-          ORDER BY tag ASC;
-        `;
-        values.push(authorId.trim());
-      } else {
-        sql = `
-          SELECT DISTINCT unnest(tags) AS tag 
-          FROM posts 
-          ORDER BY tag ASC;
-        `;
+      if (!includeDrafts) {
+        whereClauses.push(`is_published = true`);
       }
 
+      const hasCat = !!(
+        category &&
+        category !== "all" &&
+        category.trim() !== ""
+      );
+      const hasSub = !!(subcategory && subcategory.trim() !== "");
+
+      if (hasCat) {
+        whereClauses.push(`category = $${paramIndex}`);
+        values.push((category as string).trim());
+        paramIndex++;
+      }
+
+      if (hasCat && hasSub) {
+        whereClauses.push(`subcategory = $${paramIndex}`);
+        values.push((subcategory as string).trim());
+        paramIndex++;
+      }
+
+      const whereString =
+        whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+      const sql = `
+        SELECT DISTINCT unnest(tags) AS tag
+        FROM posts
+        ${whereString}
+        ORDER BY tag ASC;
+      `;
+
       const result = await pool.query(sql, values);
-
       const tagsList: string[] = [];
-
       for (const row of result.rows) {
         tagsList.push(row.tag);
       }
 
       return tagsList;
-    } catch (err: any) {
-      process.stderr.write(
-        `[postsService.getAllUniqueTags] RAW DB ERROR: ${err.message}\nStack: ${err.stack}\n`,
+    } catch (err) {
+      console.error(
+        "[posts.service.getAllUniqueTags] Database query failed",
+        err,
       );
       throw err;
     }

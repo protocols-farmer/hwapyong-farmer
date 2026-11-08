@@ -1,15 +1,12 @@
 //src/server.ts
 import http from "node:http";
-import { promisify } from "node:util";
+import { promisify, inspect } from "node:util";
+import { PORT, HOST } from "./config/env.js";
 import { app } from "./app.js";
 import { connectWithRetry, pool } from "./db/psql.js";
-import { connectRedis } from "./db/redis.js";
 import { verifyCloudinary } from "./db/cloudinary.js";
-import { startTokenCleanupWorker } from "./workers/tokenCleanup.js";
 import { startCloudinaryCleanupWorker } from "./workers/cloudinaryCleanup.js";
-
-const PORT = process.env["PORT"] || "5000";
-const HOST = process.env["HOST"] || "0.0.0.0";
+import { maintenanceState } from "./state/maintenance.js";
 
 const server = http.createServer(app);
 
@@ -45,21 +42,11 @@ const performGracefulShutdown = async (signal: string) => {
     console.log("🫩  Closing Postgres DB connection pool...");
     await pool.end();
 
-    console.log("🫩  Closing Redis connection...");
-
     console.log("🫩  All services closed. Goodbye!");
     clearTimeout(forceExit);
     process.exit(0);
-  } catch (err: any) {
-    process.stderr.write(
-      JSON.stringify({
-        level: "ERROR",
-        context: "Shutdown",
-        message: err.message,
-        stack: err.stack,
-        timestamp: new Date().toISOString(),
-      }) + "\n",
-    );
+  } catch (err) {
+    console.error("[server.performGracefulShutdown] Shutdown error", err);
     process.exit(1);
   }
 };
@@ -67,46 +54,60 @@ const performGracefulShutdown = async (signal: string) => {
 process.on("SIGINT", () => performGracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => performGracefulShutdown("SIGTERM"));
 
+process.on("unhandledRejection", (reason) => {
+  console.error(
+    "[server.unhandledRejection] Unhandled promise rejection",
+    reason,
+  );
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[server.uncaughtException] Uncaught exception, exiting", err);
+  process.exit(1);
+});
+
 const startServer = async () => {
   try {
     console.log("🥹  Initializing Production Environment...");
 
     await verifyCloudinary();
     await connectWithRetry();
-    await connectRedis();
 
-    startTokenCleanupWorker();
+    try {
+      const settingsRes = await pool.query(
+        "SELECT is_maintenance, maintenance_message FROM system_settings WHERE id = 1;",
+      );
+      if (settingsRes.rows.length > 0) {
+        maintenanceState.isMaintenance = Boolean(
+          settingsRes.rows[0].is_maintenance,
+        );
+        maintenanceState.message = String(
+          settingsRes.rows[0].maintenance_message ||
+            "System is under maintenance. Protocols are being updated.",
+        );
+        console.log(
+          `🥹  Maintenance state loaded (isMaintenance=${maintenanceState.isMaintenance}).`,
+        );
+      }
+    } catch (settingsErr) {
+      maintenanceState.isMaintenance = false;
+      console.error(
+        "[server.startServer] Failed to read system_settings on startup; defaulting maintenance mode to OFF",
+        settingsErr,
+      );
+    }
+
     startCloudinaryCleanupWorker();
 
-    server.listen(parseInt(PORT, 10), HOST, () => {
+    server.listen(PORT, HOST, () => {
       console.log(`🥹  Server listening on http://${HOST}:${PORT}`);
     });
-  } catch (error: any) {
-    const extractMessage = (err: any): string => {
-      if (!err) return "Unknown error";
-      if (err.errors && Array.isArray(err.errors) && err.errors.length > 0) {
-        return err.errors[0].message || err.message;
-      }
-      return err.message || "No message provided";
-    };
-
-    const rootCause = error.cause
-      ? extractMessage(error.cause)
-      : "No underlying cause";
-
-    const fatalLog = {
-      level: "FATAL",
-      message: error.message,
-      root_cause: rootCause,
-      code: error.cause?.code || error.cause?.errors?.[0]?.code,
-      timestamp: new Date().toISOString(),
-    };
-
-    process.stderr.write(JSON.stringify(fatalLog) + "\n");
-
-    console.error(`🫩  Fatal startup error: ${error.message}`);
-    console.error(`🫩  Root Cause: ${rootCause}`);
-
+  } catch (error) {
+    process.stderr.write(
+      "[server.startServer] Fatal startup error:\n" +
+        inspect(error, { depth: null }) +
+        "\n",
+    );
     process.exit(1);
   }
 };

@@ -8,27 +8,22 @@
     "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "tsc && tsc-alias",
     "start": "node --enable-source-maps --env-file-if-exists=.env dist/server.js",
-    "db:tables": "psql -U hwapyong -d hwapyong_db -h localhost -p 5432 -W -f ./migrations/1_creating_tables.sql",
-    "db:tables:cloud": "dotenv -e .env -- bash -c 'psql \"$DATABASE_URL\" -f ./migrations/1_creating_tables.sql'",
-    "db:seed": "tsx --env-file=.env src/db/seed.ts",
-    "db:seed:cloud": "tsx --env-file=.env src/db/seed.ts"
+    "set-owner": "tsx --env-file=.env src/scripts/setOwner.ts",
+    "db:tables:local": "psql -U hwapyong -d hwapyong_db -h localhost -p 5432 -W -f ./migrations/1_creating_tables.sql",
+    "db:tables:cloud": "dotenv -e .env -- bash -c 'psql \"$DATABASE_URL\" -f ./migrations/1_creating_tables.sql'"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.32.1",
   "dependencies": {
-    "@upstash/redis": "^1.38.0",
     "argon2": "^0.44.0",
     "busboy": "^1.6.0",
     "cloudinary": "^2.10.0",
-    "jsonwebtoken": "^9.0.3",
-    "pg": "^8.20.0",
-    "redis": "^5.12.1"
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/busboy": "^1.5.4",
-    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.6.0",
     "@types/pg": "^8.20.0",
     "dotenv-cli": "^11.0.0",

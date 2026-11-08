@@ -2,8 +2,8 @@
 import AdminDashboard from "@/components/pages/admin/AdminDashboard";
 
 export const metadata = {
-  title: "Admin Dashboard | Fortress",
-  description: "Administrative override and user management.",
+  title: "System Maintenance",
+  description: "Maintenance mode and broadcast controls for Rotten Lab.",
 };
 
 export default function Page() {

@@ -56,22 +56,19 @@ export default function MaintenanceProtocol({ showToast }: Props) {
     if (Object.keys(fieldErrors).length > 0) return;
 
     try {
-      const result = await updateMaint({
+      await updateMaint({
         is_maintenance: isMaintLocal,
         maintenance_message: maintMsg,
       }).unwrap();
 
-      if (result.redisSyncFailed) {
-        showToast(
-          "Saved to the database, but the live gate may not have updated yet. Check server logs.",
-          "error",
-        );
-      } else {
-        showToast("System protocols updated successfully.", "success");
-      }
+      showToast("System protocols updated successfully.", "success");
     } catch (err: any) {
+      console.error(
+        "[MaintenanceProtocol.handleSaveSettings] Failed to update maintenance",
+        err,
+      );
       showToast(
-        err.data?.error || "Failed to update system protocols.",
+        err?.data?.error || "Failed to update system protocols.",
         "error",
       );
     }
@@ -89,8 +86,8 @@ export default function MaintenanceProtocol({ showToast }: Props) {
 
       <div className="flex items-center justify-between gap-4">
         <div className="flex gap-2 items-center text-primary">
-          <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit">
-            System status and maintenance.
+          <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit text-sm">
+            System Status & Maintenance :
           </h4>
         </div>
 
@@ -115,10 +112,12 @@ export default function MaintenanceProtocol({ showToast }: Props) {
 
       <div className="flex flex-col gap-1">
         <div className="flex justify-between items-center w-full">
-          <label className="text-sm  ">Broadcast Message</label>
+          <label className="text-xs font-bold text-primary">
+            Broadcast Message
+          </label>
           <span
             className={cn(
-              "text-sm ",
+              "text-xs font-bold",
               isInvalidLength ? "text-destructive" : "text-primary",
             )}
           >
@@ -134,7 +133,7 @@ export default function MaintenanceProtocol({ showToast }: Props) {
             onChange={(e) => setMaintMsg(e.target.value)}
             placeholder="System protocols are being rewritten..."
             className={cn(
-              "flex-1 bg-background border-3 border-double p-2 text-sm font-bold outline-none transition-colors disabled:opacity-50",
+              "flex-1 bg-background border-3 border-double p-2 text-xs font-bold outline-none transition-colors disabled:opacity-50",
               isInvalidLength
                 ? "border-destructive/50 focus:border-destructive"
                 : "border-double focus:border-primary",
@@ -158,7 +157,7 @@ export default function MaintenanceProtocol({ showToast }: Props) {
         </div>
 
         {fieldErrors.maintenance_message && (
-          <p className="text-sm text-destructive font-bold flex items-center gap-1 mt-1 animate-in fade-in-50 duration-200">
+          <p className="text-xs text-destructive font-bold flex items-center gap-1 mt-1 animate-in fade-in-50 duration-200">
             <AlertTriangle className="h-3 w-3" />
             {fieldErrors.maintenance_message}
           </p>

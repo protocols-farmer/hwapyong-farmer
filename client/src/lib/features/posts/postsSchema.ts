@@ -8,14 +8,29 @@ const GITHUB_REGEX =
 
 const IMAGE_REGEX = /\.(jpeg|jpg|gif|png|webp|avif|svg)(\?.*)?(#.*)?$/i;
 
+const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 export const postSchema = z
   .object({
+    slug: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .max(100, "Slug cannot exceed 100 characters.")
+      .refine(
+        (val) => !val || (val.length >= 3 && SLUG_REGEX.test(val)),
+        "Slug must be 3-100 characters of lowercase letters, numbers, and hyphens.",
+      )
+      .optional()
+      .or(z.literal("")),
+
     category: z.enum(
       ["bio-engineering", "computer-science", "projects", "diary"],
       {
         message: "Please select a valid category.",
       },
     ),
+
     subcategory: z
       .enum(["serious", "random"], {
         message: "Please select a valid subcategory.",
@@ -23,14 +38,17 @@ export const postSchema = z
       .nullable()
       .optional(),
 
+    is_published: z.boolean().optional(),
+    featured: z.boolean().optional(),
+
     thumbnail: z
       .string()
+      .min(1, "Thumbnail image is required.")
       .max(2048, "Thumbnail URL too long (max 2048).")
-      .refine((url) => !url || URL_REGEX.test(url), {
+      .refine((url) => URL_REGEX.test(url), {
         message: "Thumbnail must be a valid image URL.",
       })
-
-      .refine((url) => !url || IMAGE_REGEX.test(url), {
+      .refine((url) => IMAGE_REGEX.test(url), {
         message: "Thumbnail must be a valid image URL.",
       }),
 
@@ -38,8 +56,9 @@ export const postSchema = z
       .array(
         z
           .string()
+          .min(1, "Invalid or too long image URL in gallery.")
           .max(2048, "Invalid or too long image URL in gallery.")
-          .refine((url) => !url || IMAGE_REGEX.test(url), {
+          .refine((url) => URL_REGEX.test(url) && IMAGE_REGEX.test(url), {
             message: "Invalid or too long image URL in gallery.",
           }),
       )
@@ -51,23 +70,27 @@ export const postSchema = z
 
     title: z
       .string()
+      .trim()
       .min(5, "Title must be 5-150 characters.")
       .max(150, "Title must be 5-150 characters."),
 
     short_description: z
       .string()
+      .trim()
       .min(10, "Description must be 10-300 characters.")
       .max(300, "Description must be 10-300 characters."),
 
     main_content: z
       .string()
-      .min(50, "Content must be 50-15,000 characters.")
-      .max(15000, "Content must be 50-15,000 characters."),
+      .min(50, "Content is too short.")
+      .max(40000, "Content is too long (max 40,000 characters of HTML)."),
 
     tags: z
       .array(
         z
           .string()
+          .trim()
+          .toLowerCase()
           .min(2, "Tags must be unique, 2-25 chars, and no spaces.")
           .max(25, "Tags must be unique, 2-25 chars, and no spaces.")
           .refine(

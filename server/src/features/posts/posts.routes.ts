@@ -24,11 +24,6 @@ export const postsRoutes = async ({
     return true;
   }
 
-  if (action === "getall" && req.method === "GET") {
-    await postsController.getAllPosts(req, res, parseURL);
-    return true;
-  }
-
   if (action === "getone" && req.method === "GET" && postId) {
     await postsController.getPost(req, res, postId);
     return true;
@@ -51,21 +46,6 @@ export const postsRoutes = async ({
 
   if (action === "delete" && req.method === "DELETE" && postId) {
     await postsController.deletePost(req, res, postId);
-    return true;
-  }
-
-  if (action === "mine" && req.method === "GET") {
-    await postsController.getOwnPosts(req, res, parseURL);
-    return true;
-  }
-
-  if (action === "superadmin-serious" && req.method === "GET") {
-    await postsController.getSuperAdminSeriousProjects(req, res, parseURL);
-    return true;
-  }
-
-  if (action === "superadmin-diary" && req.method === "GET") {
-    await postsController.getSuperAdminDiary(req, res, parseURL);
     return true;
   }
 

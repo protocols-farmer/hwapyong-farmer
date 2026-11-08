@@ -1,60 +1,42 @@
 //src/db/psql.ts
+import net from "node:net";
 import pg from "pg";
+import { DATABASE_URL, DATABASE_CA_CERT, DATABASE_SSL } from "../config/env.js";
+
+net.setDefaultAutoSelectFamilyAttemptTimeout(5000);
 
 const { Pool } = pg;
 
-const connectionString = process.env["DATABASE_URL"];
-if (!connectionString) {
-  process.stderr.write(
-    "FATAL ERROR: DATABASE_URL is not defined in environment variables.\n",
-  );
-  process.exit(1);
-}
-
-const isProduction = process.env["NODE_ENV"] === "production";
-
-// #12 fix: rejectUnauthorized: false silently accepted ANY certificate,
-// which defeats the point of SSL. This is now explicit instead of a silent
-// default:
-// - Set DATABASE_CA_CERT to the CA certificate PEM from your Render
-//   Postgres dashboard (Database → Connections → CA Certificate) to get
-//   full certificate verification.
-// - Without it, this falls back to the old behavior but now WARNS loudly
-//   at startup instead of doing it silently.
-// - DATABASE_SSL_REJECT_UNAUTHORIZED=true silences that warning if you've
-//   consciously decided to accept the tradeoff.
-const databaseCaCert = process.env["DATABASE_CA_CERT"];
-const explicitRejectUnauthorized =
-  process.env["DATABASE_SSL_REJECT_UNAUTHORIZED"];
-
 let sslConfig: pg.PoolConfig["ssl"];
 
-if (!isProduction) {
+if (DATABASE_SSL === "off") {
   sslConfig = undefined;
-} else if (databaseCaCert) {
-  sslConfig = { rejectUnauthorized: true, ca: databaseCaCert };
-  console.log(
-    "🥹  Postgres SSL: verifying server certificate against DATABASE_CA_CERT.",
-  );
-} else if (explicitRejectUnauthorized === "true") {
-  sslConfig = { rejectUnauthorized: false };
-  process.stderr.write(
-    "⚠️  WARNING: Postgres SSL certificate verification is explicitly disabled (DATABASE_SSL_REJECT_UNAUTHORIZED=true). This accepts any certificate. Set DATABASE_CA_CERT instead if possible.\n",
-  );
+} else if (DATABASE_SSL === "verify") {
+  if (DATABASE_CA_CERT) {
+    sslConfig = { rejectUnauthorized: true, ca: DATABASE_CA_CERT };
+    console.log(
+      "🥹  Postgres SSL: verifying server certificate against DATABASE_CA_CERT.",
+    );
+  } else {
+    sslConfig = { rejectUnauthorized: true };
+    console.log(
+      "🥹  Postgres SSL: verifying server certificate against system CAs.",
+    );
+  }
 } else {
   sslConfig = { rejectUnauthorized: false };
-  process.stderr.write(
-    "⚠️  WARNING: DATABASE_CA_CERT is not set — falling back to rejectUnauthorized: false, which accepts any certificate. Get your database's CA certificate from Render's dashboard (Database → Connections → CA Certificate) and set it as DATABASE_CA_CERT to fix this properly.\n",
+  console.warn(
+    "⚠️  WARNING: Postgres SSL certificate verification is disabled (DATABASE_SSL=no-verify). Any certificate is accepted.",
   );
 }
 
 const poolConfig: pg.PoolConfig = {
-  connectionString: connectionString,
+  connectionString: DATABASE_URL,
   ssl: sslConfig,
 
-  max: 20,
+  max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 10000,
   statement_timeout: 10000,
   query_timeout: 10000,
 };
@@ -62,18 +44,9 @@ const poolConfig: pg.PoolConfig = {
 export const pool = new Pool(poolConfig);
 
 pool.on("error", (err: Error) => {
-  process.stderr.write(
-    JSON.stringify({
-      level: "FATAL",
-      message: "Unexpected error on idle PostgreSQL client",
-      error: err.message,
-      code: (err as any).code,
-      stack: err.stack,
-      poolTotal: pool.totalCount,
-      poolIdle: pool.idleCount,
-      poolWaiting: pool.waitingCount,
-      timestamp: new Date().toISOString(),
-    }) + "\n",
+  console.error(
+    `[psql.pool] Unexpected error on idle PostgreSQL client (total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount})`,
+    err,
   );
 });
 
@@ -92,18 +65,10 @@ export const connectWithRetry = async (maxRetries = 5): Promise<boolean> => {
 
       const delay = Math.pow(2, i - 1) * 1000 + Math.random() * 1000;
 
-      process.stderr.write(
-        JSON.stringify({
-          level: "ERROR",
-          attempt: i,
-          message: "Database connection failed",
-          code: (err as any).code,
-          detail: (err as any).detail,
-          stack: lastError.stack,
-          timestamp: new Date().toISOString(),
-        }) + "\n",
+      console.error(
+        `[psql.connectWithRetry] Database connection failed (attempt ${i}/${maxRetries})`,
+        err,
       );
-
       if (i === maxRetries) break;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

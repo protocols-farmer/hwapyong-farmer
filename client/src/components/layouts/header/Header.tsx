@@ -55,9 +55,10 @@ type FrameProps = {
   src: string;
   alt: string;
   className?: string;
+  windDelay?: string;
 };
 
-function VictorianFrame({ src, alt, className }: FrameProps) {
+function VictorianFrame({ src, alt, className, windDelay }: FrameProps) {
   return (
     <div
       className={cn(
@@ -66,26 +67,34 @@ function VictorianFrame({ src, alt, className }: FrameProps) {
       )}
     >
       <Nail />
-      <div className="absolute inset-[15%] overflow-hidden">
-        <AgedPhoto src={src} alt={alt} sizes={FRAME_SIZES} />
+      <div
+        className="wind-swing absolute inset-0"
+        style={{ animationDelay: windDelay }}
+      >
+        <div className="absolute inset-[15%] overflow-hidden">
+          <AgedPhoto src={src} alt={alt} sizes={FRAME_SIZES} />
+        </div>
+        <Image
+          src="/transparent-frame.png"
+          alt=""
+          aria-hidden
+          fill
+          sizes={FRAME_SIZES}
+          className="pointer-events-none select-none object-contain"
+        />
       </div>
-      <Image
-        src="/transparent-frame.png"
-        alt=""
-        aria-hidden
-        fill
-        sizes={FRAME_SIZES}
-        className="pointer-events-none select-none object-contain"
-      />
     </div>
   );
 }
 
-function PlainFrame({ src, alt, className }: FrameProps) {
+function PlainFrame({ src, alt, className, windDelay }: FrameProps) {
   return (
     <div className={cn("relative w-[clamp(4.5rem,9vw,10rem)]", className)}>
       <Nail />
-      <div className="border-3 border-double border-foreground bg-card p-2 shadow-md">
+      <div
+        className="wind-swing border-3 border-double border-foreground bg-card p-2 shadow-md"
+        style={{ animationDelay: windDelay }}
+      >
         <div className="relative aspect-square overflow-hidden border border-border">
           <AgedPhoto src={src} alt={alt} sizes={FRAME_SIZES} />
         </div>
@@ -107,7 +116,6 @@ export default function Header() {
 
   return (
     <>
-      {/* Photo band — plain flow, scrolls away normally. */}
       <header className="header-container relative overflow-x-clip border-b-3 border-double px-[clamp(1rem,4vw,2.5rem)] py-[clamp(2rem,5vw,3.5rem)]">
         <OrnateVictoria className="-top-1 -left-1" />
         <OrnateVictoria className="-top-1 -right-1 rotate-90" />
@@ -120,14 +128,16 @@ export default function Header() {
         <div className="flex flex-col items-center gap-[clamp(1rem,4vw,2rem)] sm:flex-row sm:items-end sm:justify-center">
           <div className="flex items-end justify-center gap-[clamp(0.5rem,2vw,1.5rem)]">
             <VictorianFrame
-              src="/patent.jpeg"
+              src="/synth.jpg"
               alt="Patent illustration"
               className="-rotate-6 translate-y-1"
+              windDelay="0.4s"
             />
             <PlainFrame
-              src="/kid-me.jpg"
+              src="/dna.png"
               alt="Childhood photo"
               className="rotate-3 translate-y-3"
+              windDelay="0.6s"
             />
           </div>
 
@@ -137,44 +147,37 @@ export default function Header() {
 
           <div className="flex items-end justify-center gap-[clamp(0.5rem,2vw,1.5rem)]">
             <PlainFrame
-              src="/me.jpeg"
+              src="/logo.png"
               alt="Portrait photo"
               className="-rotate-3 translate-y-3"
+              windDelay="0.9s"
             />
             <VictorianFrame
-              src="/my-love.jpeg"
+              src="/patent.jpeg"
               alt="Portrait"
               className="rotate-6 translate-y-1"
+              windDelay="1.1s"
             />
           </div>
         </div>
       </header>
 
-      {/* Nav — now a sibling of <main> in AppLayout, not nested inside
-          <header>. That's what gives it a containing block tall enough
-          to actually stay pinned while the page scrolls. */}
       <div className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b-3 border-double bg-card/85 p-3 backdrop-blur-lg">
         <div className="flex items-center gap-3">
           <MobileSidebar />
           <Logo />
 
-          {mounted && isAuthenticated && user ? (
+          {mounted && isAuthenticated ? (
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold">
-                Welcome, {user.username}
-              </span>
-              <span
-                className={cn(
-                  "text-[9px] font-black   px-1.5 py-0.5 border-3 border-double selection:bg-transparent",
-                  user.role === "super_admin" &&
-                    "bg-primary text-primary-foreground border-primary",
-                  user.role === "admin" &&
-                    "bg-card text-foreground border-foreground",
-                  user.role === "user" &&
-                    "opacity-60 bg-background border-foreground/30",
-                )}
-              >
-                {user.role === "super_admin" ? "super admin" : user.role}
+              {user ? (
+                <span className="text-sm font-bold">
+                  Welcome, {user.display_name}
+                </span>
+              ) : (
+                <span className="h-4 w-28 animate-pulse bg-primary/20 border-2 border-double" />
+              )}
+              <span className="text-[9px] font-black px-1.5 py-0.5 border-3 border-double selection:bg-transparent bg-primary text-primary-foreground border-primary">
+                owner
               </span>
             </div>
           ) : (
@@ -190,7 +193,7 @@ export default function Header() {
         <nav>
           <Button
             variant="outline"
-            className="rounded-none border-double border-3"
+            className="rounded-none border-double border-3 "
             asChild
           >
             {mounted && isAuthenticated ? (
@@ -206,19 +209,17 @@ export default function Header() {
         </nav>
 
         <div>
-          {mounted &&
-            isAuthenticated &&
-            (user?.role === "admin" || user?.role === "super_admin") && (
-              <Button
-                variant="outline"
-                className="rounded-none border-double border-3"
-                asChild
-              >
-                <Link href="/posts/create-post" className="w-full">
-                  create
-                </Link>
-              </Button>
-            )}
+          {mounted && isAuthenticated && (
+            <Button
+              variant="outline"
+              className="rounded-none border-double border-3"
+              asChild
+            >
+              <Link href="/posts/create-post" className="w-full">
+                create
+              </Link>
+            </Button>
+          )}
         </div>
 
         <ThemeToggler />

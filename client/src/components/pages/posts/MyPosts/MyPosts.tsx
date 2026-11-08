@@ -8,10 +8,12 @@ import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import FilterSection from "../FilterSection";
 import { AlertTriangle } from "lucide-react";
 import {
-  useGetMyPostsQuery,
+  useGetFilteredPostsQuery,
   useGetAllTagsQuery,
 } from "@/lib/features/posts/postsApiSlice";
 import AuthGuard from "@/components/shared/AuthGuard";
+import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
+import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
 
 const CardSkeleton = () => (
   <div className="border-3 border-double bg-card flex flex-col gap-3 p-3 justify-between animate-pulse">
@@ -27,13 +29,13 @@ const CardSkeleton = () => (
 );
 
 const EmptyState = () => (
-  <div className="p-6 border-3 border-double text-center flex flex-col gap-3 items-center bg-card">
+  <div className="p-6  relative border-3 border-double text-center flex flex-col gap-3 items-center bg-card">
     <p className="text-sm font-bold text-primary">
       No protocols found matching your criteria.
     </p>
     <p className="text-xs font-bold">
-      You haven't created any posts yet, or they don't match your active
-      filters.
+      You haven&apos;t created any posts yet, or they don&apos;t match your
+      active filters.
     </p>
   </div>
 );
@@ -107,11 +109,13 @@ function MyPostsContent() {
     isLoading,
     isFetching,
     isError,
-  } = useGetMyPostsQuery({
+  } = useGetFilteredPostsQuery({
     page,
     q: searchQuery || null,
-    category: activeCategory !== "all" ? activeCategory : null,
+    category:
+      activeCategory && activeCategory !== "all" ? activeCategory : null,
     tag: activeTagsString || null,
+    includeDrafts: true,
     sortBy,
     sortOrder,
   });
@@ -121,27 +125,36 @@ function MyPostsContent() {
     isLoading: isTagsLoading,
     isError: isTagsError,
   } = useGetAllTagsQuery({
-    category: activeCategory !== "all" ? activeCategory : null,
-    mine: true,
+    category:
+      activeCategory && activeCategory !== "all" ? activeCategory : null,
+    includeDrafts: true,
   });
 
   const isPageLoading = isLoading || isFetching;
   const filteredPosts = activeData?.posts || [];
+  const totalEntries = activeData?.total ?? filteredPosts.length;
   const allAvailableTags = contextualTagsData?.tags || [];
 
   return (
-    <section className="p-3 lg:p-6 min-h-screen flex flex-col gap-6 bg-background text-foreground">
+    <section className="p-3 relative lg:p-6 min-h-screen flex flex-col gap-6 bg-background text-foreground">
+      <OrnateVictoria className="-top-1 -left-1" />
+      <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+      <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+      <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
+
+      <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
+      <BorderCenterpiece className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-[60%] w-44 h-auto rotate-180 z-20" />
       <header className="relative border-3 border-double p-3 flex flex-col gap-3">
         <CornerFlourish className="-top-1 -left-1" />
         <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
 
-        <div className=" text-primary">
-          <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit ">
-            My Posts :
+        <div className="text-primary">
+          <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit">
+            Manage Posts :
           </h4>
         </div>
         <p className="border-l-3 border-double pl-3 font-bold text-xs">
-          Manage and monitor your personal protocol entries.
+          Manage and monitor your published entries and drafts.
         </p>
       </header>
 
@@ -180,9 +193,8 @@ function MyPostsContent() {
         <>
           {!isPageLoading && (
             <div className="flex justify-between items-center">
-              <span className="text-xs font-bold border-3 border-double px-2 py-1 ">
-                {filteredPosts.length}{" "}
-                {filteredPosts.length === 1 ? "entry" : "entries"} found
+              <span className="text-xs font-bold border-3 border-double px-2 py-1">
+                {totalEntries} {totalEntries === 1 ? "entry" : "entries"} found
               </span>
             </div>
           )}
@@ -193,7 +205,7 @@ function MyPostsContent() {
                   <CardSkeleton key={i} />
                 ))
               : filteredPosts.map((post) => (
-                  <PostCard key={post.id} post={post} />
+                  <PostCard key={post.id} post={post} showEditButton={true} />
                 ))}
           </div>
 
@@ -234,7 +246,7 @@ function MyPostsContent() {
 export default function MyPosts() {
   return (
     <AuthGuard
-      message="Access denied. Please provide credentials to access security and profile settings."
+      message="Please log in with owner credentials to manage your posts and drafts."
       level="critical"
     >
       <MyPostsContent />

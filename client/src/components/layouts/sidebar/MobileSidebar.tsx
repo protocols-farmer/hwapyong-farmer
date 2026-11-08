@@ -1,7 +1,9 @@
 //src/components/layouts/sidebar/MobileSidebar.tsx
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { useSelector } from "react-redux";
+import { selectIsAuthenticated } from "@/lib/features/auth/authSlice";
 import {
   Sheet,
   SheetContent,
@@ -13,7 +15,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Menu, Heart, User } from "lucide-react";
+import { Menu, User, LogIn } from "lucide-react";
 import Link from "next/link";
 
 import HomeCard from "./sideBarCards/HomeCard";
@@ -23,6 +25,13 @@ import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import Logo from "@/components/shared/Logo";
 
 export default function MobileSidebar() {
+  const isAuthenticated = useSelector(selectIsAuthenticated);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <div className="lg:hidden">
       <Sheet>
@@ -70,7 +79,7 @@ export default function MobileSidebar() {
             </SheetClose>
           </div>
 
-          <div className="relative p-3 border-3  border-double flex flex-col gap-1">
+          <div className="relative p-3 border-3 border-double flex flex-col gap-1">
             <CornerFlourish className="-top-1 -left-1 rotate-0" />
             <CornerFlourish className="-top-1 -right-1 rotate-90" />
             <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
@@ -80,8 +89,17 @@ export default function MobileSidebar() {
               Well who would refuse a free coffee from you guys hehe any amount
               will do bro{" "}
             </p>
-            <Button className="w-full rounded-none border-3 border-double">
-              Donate
+            <Button
+              asChild
+              className="w-full rounded-none border-3 border-double"
+            >
+              <a
+                href="https://patalink.me/protocolsfarmer"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Support
+              </a>
             </Button>
           </div>
 
@@ -89,14 +107,31 @@ export default function MobileSidebar() {
             <div className="flex w-full items-center justify-between border-3 border-double p-3">
               <div className="flex items-center gap-3">
                 <div className="h-8 w-8 border-3 border-double flex items-center justify-center">
-                  <User className="h-5 w-5 text-primary" />
+                  {mounted && isAuthenticated ? (
+                    <User className="h-5 w-5 text-primary" />
+                  ) : (
+                    <LogIn className="h-5 w-5 text-primary" />
+                  )}
                 </div>
-                <Link
-                  href="/me"
-                  className="text-xs font-bold text-primary hover:underline"
-                >
-                  Manage Account
-                </Link>
+                {mounted && isAuthenticated ? (
+                  <SheetClose asChild>
+                    <Link
+                      href="/me"
+                      className="text-xs font-bold text-primary hover:underline"
+                    >
+                      Manage Account
+                    </Link>
+                  </SheetClose>
+                ) : (
+                  <SheetClose asChild>
+                    <Link
+                      href="/auth"
+                      className="text-xs font-bold text-primary hover:underline"
+                    >
+                      Owner Login
+                    </Link>
+                  </SheetClose>
+                )}
               </div>
             </div>
           </SheetFooter>

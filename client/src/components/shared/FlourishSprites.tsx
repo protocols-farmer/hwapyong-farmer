@@ -2,7 +2,7 @@
 
 export function FlourishSprites() {
   return (
-    <svg width="0" height="0" className="hidden" aria-hidden="true">
+    <svg width="0" height="0" className="absolute" aria-hidden="true">
       <defs>
         <symbol id="corner-flourish" viewBox="0 0 60 60">
           <path

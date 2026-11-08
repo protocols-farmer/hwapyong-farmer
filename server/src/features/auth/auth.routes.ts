@@ -11,24 +11,8 @@ export const authRoutes = async ({
   res: ServerResponse;
   pathname: string;
 }): Promise<boolean> => {
-  if (pathname === "/api/v1/auth/ban-check" && req.method === "GET") {
-    await authController.banCheck(req, res);
-    return true;
-  }
-  if (pathname === "/api/v1/auth/signup" && req.method === "POST") {
-    await authController.signup(req, res);
-    return true;
-  }
   if (pathname === "/api/v1/auth/login" && req.method === "POST") {
     await authController.login(req, res);
-    return true;
-  }
-
-  if (
-    pathname === "/api/v1/auth/refresh" &&
-    (req.method === "POST" || req.method === "GET")
-  ) {
-    await authController.refresh(req, res);
     return true;
   }
 
@@ -36,20 +20,29 @@ export const authRoutes = async ({
     await authController.logout(req, res);
     return true;
   }
+
+  if (pathname === "/api/v1/auth/me" && req.method === "GET") {
+    await authController.me(req, res);
+    return true;
+  }
+
+  if (pathname === "/api/v1/auth/profile" && req.method === "GET") {
+    await authController.getPublicProfile(req, res);
+    return true;
+  }
+
   if (pathname === "/api/v1/auth/change-password" && req.method === "PATCH") {
     await authController.changePassword(req, res);
     return true;
   }
+
   if (pathname === "/api/v1/auth/update" && req.method === "PATCH") {
-    await authController.updateAccount(req, res);
+    await authController.updateProfile(req, res);
     return true;
   }
+
   if (pathname === "/api/v1/auth/upload-avatar" && req.method === "POST") {
     await authController.uploadAvatar(req, res);
-    return true;
-  }
-  if (pathname === "/api/v1/auth/delete" && req.method === "DELETE") {
-    await authController.deleteAccount(req, res);
     return true;
   }
 

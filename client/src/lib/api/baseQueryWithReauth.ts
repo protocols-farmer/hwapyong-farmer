@@ -5,10 +5,8 @@ import type {
   FetchArgs,
   FetchBaseQueryError,
 } from "@reduxjs/toolkit/query";
-import { Mutex } from "async-mutex";
-import { setCredentials, logout } from "../features/auth/authSlice";
+import { logout } from "../features/auth/authSlice";
 import type { RootState } from "../store";
-import type { AuthResponse } from "../features/auth/authTypes";
 
 const baseUrl = process.env.NEXT_PUBLIC_API_URL;
 
@@ -16,13 +14,10 @@ if (!baseUrl) {
   console.error("FATAL: NEXT_PUBLIC_API_URL is missing from .env.local");
 }
 
-const mutex = new Mutex();
-
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: baseUrl,
-  credentials: "include",
   prepareHeaders: (headers, { getState }) => {
-    const token = (getState() as RootState).auth.accessToken;
+    const token = (getState() as RootState).auth.sessionToken;
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
@@ -35,61 +30,21 @@ export const baseQueryWithReauth: BaseQueryFn<
   unknown,
   FetchBaseQueryError
 > = async (args, api, extraOptions) => {
-  await mutex.waitForUnlock();
+  const tokenSent = (api.getState() as RootState).auth.sessionToken;
 
-  let result = await rawBaseQuery(args, api, extraOptions);
+  const result = await rawBaseQuery(args, api, extraOptions);
 
-  if (result.error && result.error.status === 401) {
-    const url = typeof args === "string" ? args : args.url;
+  if (result.error && result.error.status === 401 && tokenSent) {
+    const errorData = result.error.data as
+      { code?: string; error?: string } | undefined;
+    const errorCode = errorData?.code;
 
-    const isAuthRequest =
-      url?.includes("/auth/login") || url?.includes("/auth/signup");
-
-    if (isAuthRequest) {
-      return result;
-    }
-
-    const isRefreshRequest = url?.includes("/auth/refresh");
-
-    if (isRefreshRequest) {
-      api.dispatch(logout());
-      return result;
-    }
-
-    if (!mutex.isLocked()) {
-      const release = await mutex.acquire();
-      try {
-        console.warn("Access token expired. Attempting silent refresh...");
-
-        const refreshResult = await rawBaseQuery(
-          { url: "/auth/refresh", method: "POST" },
-          api,
-          extraOptions,
-        );
-
-        if (refreshResult.data) {
-          console.log("Token rotated successfully. Retrying original request.");
-
-          const authData = refreshResult.data as AuthResponse;
-          api.dispatch(setCredentials(authData));
-
-          result = await rawBaseQuery(args, api, extraOptions);
-        } else {
-          console.warn(
-            "Silent refresh failed — logging out and surfacing reason to caller.",
-          );
-          api.dispatch(logout());
-          if (refreshResult.error) {
-            result = { error: refreshResult.error };
-          }
-        }
-      } finally {
-        release();
+    if (errorCode === "SESSION_INVALID" || errorCode === "AUTH_MISSING") {
+      const currentTokenInState = (api.getState() as RootState).auth
+        .sessionToken;
+      if (currentTokenInState && currentTokenInState === tokenSent) {
+        api.dispatch(logout());
       }
-    } else {
-      await mutex.waitForUnlock();
-
-      result = await rawBaseQuery(args, api, extraOptions);
     }
   }
 

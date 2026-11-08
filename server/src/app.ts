@@ -2,23 +2,11 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { apiRoutes } from "./features/api.routes.js";
-import { redisClient } from "./db/redis.js";
-import jwt from "jsonwebtoken";
-import type { JWTPayload } from "./features/auth/auth.types.js";
-import { isAccessTokenInvalidated } from "./features/auth/sessionInvalidation.js";
+import { verifySession } from "./features/auth/verifySession.js";
+import { maintenanceState } from "./state/maintenance.js";
+import { ALLOWED_ORIGINS, TRUSTED_PROXY_HOPS } from "./config/env.js";
 
-const ACCESS_TOKEN_SECRET = process.env["ACCESS_TOKEN_SECRET"];
-const rawAllowedOrigins = process.env["CLIENT_URL"];
-
-if (!ACCESS_TOKEN_SECRET || !rawAllowedOrigins) {
-  process.stderr.write(
-    "FATAL ERROR: Environment variables ACCESS_TOKEN_SECRET or CLIENT_URL missing.\n",
-  );
-  process.exit(1);
-}
-
-const allowedOrigins = rawAllowedOrigins.split(",").map((o) => o.trim());
-console.log("🥹  Allowed CORS origins:", allowedOrigins);
+console.log("🥹  Allowed CORS origins:", ALLOWED_ORIGINS);
 
 export const app = async (
   req: IncomingMessage,
@@ -27,7 +15,8 @@ export const app = async (
   const startTime = process.hrtime();
 
   const origin = req.headers.origin || "";
-  if (allowedOrigins.includes(origin)) {
+  res.setHeader("Vary", "Origin");
+  if (ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -48,19 +37,42 @@ export const app = async (
     try {
       const [seconds, nanoseconds] = process.hrtime(startTime);
       const durationInMs = (seconds * 1000 + nanoseconds / 1e6).toFixed(2);
+
+      let clientIp = "unknown_ip";
+      if (TRUSTED_PROXY_HOPS === 0) {
+        clientIp = req.socket.remoteAddress || "unknown_ip";
+      } else {
+        const forwardedHeader = req.headers["x-forwarded-for"];
+        const rawForwarded = Array.isArray(forwardedHeader)
+          ? forwardedHeader.join(",")
+          : String(forwardedHeader || "");
+        const hopsList = rawForwarded
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        if (hopsList.length >= TRUSTED_PROXY_HOPS) {
+          clientIp =
+            hopsList[hopsList.length - TRUSTED_PROXY_HOPS] || "unknown_ip";
+        } else if (hopsList.length > 0) {
+          clientIp = hopsList[0] || "unknown_ip";
+        } else {
+          clientIp = req.socket.remoteAddress || "unknown_ip";
+        }
+      }
+
       const log = {
         timestamp: new Date().toISOString(),
         method: req.method,
         url: req.url,
         status: res.statusCode,
         duration: `${durationInMs}ms`,
-        ip: String(
-          req.headers["x-forwarded-for"] || req.socket.remoteAddress,
-        ).split(",")[0],
+        ip: clientIp,
         userAgent: req.headers["user-agent"],
       };
       process.stdout.write(JSON.stringify(log) + "\n");
-    } catch {}
+    } catch (err) {
+      console.error("[app.finish] Request log write failed", err);
+    }
   });
 
   if (req.method === "OPTIONS") {
@@ -69,95 +81,58 @@ export const app = async (
     return;
   }
 
-  const ip =
-    String(req.headers["x-forwarded-for"] || req.socket.remoteAddress).split(
-      ",",
-    )[0] || "unknown_ip";
-  const redisKey = `ratelimit:global:${ip}`;
+  const protocol = (req.socket as any).encrypted ? "https" : "http";
+  const baseURL = `${protocol}://${req.headers.host || "localhost"}`;
+  const parseURL = new URL(req.url || "/", baseURL);
 
-  if (process.env["NODE_ENV"] !== "development") {
-    try {
-      const currentCount = await redisClient.incr(redisKey);
-      if (currentCount === 1) {
-        await redisClient.expire(redisKey, 60);
-      }
+  const { pathname } = parseURL;
 
-      if (currentCount > 500) {
-        res.statusCode = 429;
+  const isPublicReadRoute =
+    req.method === "GET" &&
+    (pathname === "/api/v1/posts/filter" ||
+      pathname.startsWith("/api/v1/posts/getone/") ||
+      pathname === "/api/v1/posts/tags" ||
+      pathname === "/api/v1/auth/profile" ||
+      pathname === "/api/v1/admin/maintenance");
+
+  if (isPublicReadRoute && !req.headers.authorization) {
+    res.setHeader("Cache-Control", "no-cache");
+  } else {
+    res.setHeader("Cache-Control", "no-store");
+  }
+
+  if (maintenanceState.isMaintenance) {
+    const isAlwaysAllowed =
+      pathname === "/" ||
+      (pathname === "/api/v1/health" && req.method === "GET") ||
+      (pathname === "/api/v1/auth/login" && req.method === "POST") ||
+      (pathname === "/api/v1/auth/me" && req.method === "GET") ||
+      (pathname === "/api/v1/admin/maintenance" && req.method === "GET");
+
+    if (!isAlwaysAllowed) {
+      const verifyResult = await verifySession(
+        req.headers.authorization,
+        "maintenanceGate",
+      );
+
+      if (!verifyResult.ok) {
+        res.statusCode = 503;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ error: "Too many requests. Slow down bro." }));
+        res.end(
+          JSON.stringify({
+            error: "Maintenance Mode Active",
+            message: maintenanceState.message,
+          }),
+        );
         return;
       }
-    } catch (err) {
-      process.stderr.write(
-        `[REDIS_NETWORK_WARN] Rate limiter bypassed due to offline status: ${(err as Error).message}\n`,
-      );
-    }
-  }
-
-  let isMaintenance = "false";
-  try {
-    const maintenanceRes = await redisClient.get<string>("maintenance:status");
-    isMaintenance = maintenanceRes || "false";
-  } catch (err) {
-    process.stderr.write(
-      `[REDIS_NETWORK_WARN] Maintenance check bypassed due to offline status: ${(err as Error).message}\n`,
-    );
-  }
-
-  if (isMaintenance === "true") {
-    const authHeader = req.headers.authorization;
-    let isSuperAdmin = false;
-
-    if (authHeader?.startsWith("Bearer ")) {
-      try {
-        const token = authHeader.split(" ")[1];
-
-        if (!token) throw new Error("Missing token string");
-
-        const decoded = jwt.verify(
-          token,
-          ACCESS_TOKEN_SECRET as string,
-        ) as unknown as JWTPayload;
-
-        if (decoded.role === "super_admin" && decoded.token_use === "access") {
-          const wasInvalidated = await isAccessTokenInvalidated(
-            decoded.id,
-            decoded.iat,
-          );
-          if (!wasInvalidated) {
-            isSuperAdmin = true;
-          }
-        }
-      } catch (err) {
-        process.stderr.write(
-          `[MAINTENANCE] Token Verify Error: ${(err as Error).message}\n`,
-        );
-      }
-    }
-
-    if (!isSuperAdmin) {
-      let message = "The Lab is undergoing critical updates.";
-
-      try {
-        const customMessage = await redisClient.get<string>(
-          "maintenance:message",
-        );
-        if (customMessage) message = customMessage;
-      } catch (err) {}
-
-      res.statusCode = 503;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Maintenance Mode Active", message }));
-      return;
     }
   }
 
   if (["POST", "PATCH", "PUT"].includes(req.method || "")) {
-    const requestPathOnly = (req.url || "").split("?")[0];
     const isExemptUploadRoute =
-      requestPathOnly === "/api/v1/auth/upload-avatar" ||
-      requestPathOnly === "/api/v1/posts/upload";
+      pathname === "/api/v1/auth/upload-avatar" ||
+      pathname === "/api/v1/posts/upload";
 
     if (!isExemptUploadRoute) {
       const contentLength = parseInt(req.headers["content-length"] || "0", 10);
@@ -175,11 +150,6 @@ export const app = async (
     }
   }
 
-  const protocol = (req.socket as any).encrypted ? "https" : "http";
-  const baseURL = `${protocol}://${req.headers.host || "localhost"}`;
-  const parseURL = new URL(req.url || "/", baseURL);
-  const { pathname } = parseURL;
-
   if (pathname === "/") {
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
@@ -195,13 +165,7 @@ export const app = async (
       res.end(JSON.stringify({ error: "Route not found" }));
     }
   } catch (err) {
-    process.stderr.write(
-      JSON.stringify({
-        level: "FATAL",
-        context: "Request Handling Error",
-        error: (err as Error).message,
-      }) + "\n",
-    );
+    console.error("[app.request] Unhandled request handling error", err);
     if (!res.headersSent) {
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");

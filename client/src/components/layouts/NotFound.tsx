@@ -75,7 +75,7 @@ export default function NotFound() {
             variant="outline"
             className="border-3 border-double rounded-none flex-1 gap-1"
           >
-            <Link href="/computer">
+            <Link href="/posts/computer-science">
               <Search className="h-4 w-4" />
               <span>Browse Posts</span>
             </Link>

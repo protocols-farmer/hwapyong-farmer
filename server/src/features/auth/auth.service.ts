@@ -2,185 +2,185 @@
 import { pool } from "../../db/psql.js";
 
 export const authService = {
-  async signup(username: string, hash: string) {
+  async findOwnerByUsername(username: string) {
     const sql = `
-      INSERT INTO users (username, password_hash) 
-      VALUES ($1, $2) 
-      RETURNING id, username, role, profile_title, avatar_url, created_at;
-    `;
-
-    return await pool.query(sql, [username, hash]);
-  },
-
-  async findUserByUsername(username: string) {
-    const sql = `SELECT id, username, password_hash, role, created_at, updated_at FROM users WHERE LOWER(username) = LOWER($1);`;
-    return await pool.query(sql, [username]);
-  },
-
-  async findUserById(id: string) {
-    const sql = `
-      SELECT 
-        id, 
-        username, 
-        profile_title,
-        avatar_url,
-        role,
-        created_at, 
-        updated_at 
-      FROM users 
-      WHERE id = $1;
+      SELECT id, username, display_name, profile_title, avatar_url, password_hash, created_at, updated_at
+      FROM profile
+      WHERE LOWER(username) = LOWER($1)
+      LIMIT 1;
     `;
     try {
-      return await pool.query(sql, [id]);
-    } catch (error) {
-      process.stderr.write(
-        `[AUTH_SERVICE FATAL ERROR - findUserById]: ${(error as Error).message}\nStack: ${(error as Error).stack}\n`,
+      return await pool.query(sql, [username]);
+    } catch (err) {
+      console.error(
+        "[auth.service.findOwnerByUsername] Database query failed",
+        err,
       );
-      throw error;
+      throw err;
     }
   },
 
-  async findUserByIdWithPasswordHash(id: string) {
+  async getProfile() {
     const sql = `
-      SELECT 
-        id, 
-        username, 
-        password_hash,
-        role,
-        created_at, 
-        updated_at 
-      FROM users 
-      WHERE id = $1;
+      SELECT id, username, display_name, profile_title, avatar_url, password_hash, created_at, updated_at
+      FROM profile
+      LIMIT 1;
     `;
     try {
-      return await pool.query(sql, [id]);
-    } catch (error) {
-      process.stderr.write(
-        `[AUTH_SERVICE FATAL ERROR - findUserByIdWithPasswordHash]: ${(error as Error).message}\nStack: ${(error as Error).stack}\n`,
-      );
-      throw error;
+      return await pool.query(sql);
+    } catch (err) {
+      console.error("[auth.service.getProfile] Database query failed", err);
+      throw err;
     }
   },
 
-  async updateUser(
-    username: string | null,
-    profileTitle: string | null,
-    avatarUrl: string | null,
-    avatarUrlProvided: boolean,
-    id: string,
-  ) {
-    const sql = `
-      UPDATE users 
-      SET 
-        username = COALESCE($1, username), 
-        profile_title = COALESCE($2, profile_title),
-        avatar_url = CASE WHEN $3::boolean THEN $4 ELSE avatar_url END,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5
-      RETURNING id, username, profile_title, avatar_url, role, updated_at;
-    `;
-    return await pool.query(sql, [
-      username,
-      profileTitle,
-      avatarUrlProvided,
-      avatarUrl,
-      id,
-    ]);
-  },
-
-  async updatePassword(hash: string, id: string) {
-    const sql = `
-      UPDATE users 
-      SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2;
-    `;
-    return await pool.query(sql, [hash, id]);
-  },
-
-  async deleteUser(id: string) {
-    const sql = `DELETE FROM users WHERE id = $1 RETURNING id;`;
-    return await pool.query(sql, [id]);
-  },
-
-  async createRefreshToken(
-    userId: string,
+  async createSession(
     tokenHash: string,
     expiresAt: Date,
     userAgent: string | null,
     ipAddress: string | null,
-    parentTokenId: string | null = null,
-    sessionCreatedAt: Date = new Date(),
   ) {
     const sql = `
-      INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address, parent_token_id, session_created_at) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7) 
-      RETURNING id, user_id, parent_token_id, is_revoked, expires_at, session_created_at;
+      INSERT INTO sessions (token_hash, expires_at, user_agent, ip_address)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, token_hash, expires_at, user_agent, ip_address, created_at;
     `;
-    return await pool.query(sql, [
-      userId,
-      tokenHash,
-      expiresAt,
-      userAgent,
-      ipAddress,
-      parentTokenId,
-      sessionCreatedAt,
-    ]);
+    try {
+      return await pool.query(sql, [
+        tokenHash,
+        expiresAt,
+        userAgent,
+        ipAddress,
+      ]);
+    } catch (err) {
+      console.error("[auth.service.createSession] Database insert failed", err);
+      throw err;
+    }
   },
 
-  async findRefreshTokenByHash(tokenHash: string) {
+  async findSessionByTokenHash(tokenHash: string) {
     const sql = `
-      SELECT id, user_id, token_hash, parent_token_id, is_revoked, expires_at, user_agent, ip_address, created_at, session_created_at 
-      FROM refresh_tokens 
-      WHERE token_hash = $1;
+      SELECT
+        s.id AS session_id,
+        s.token_hash,
+        s.expires_at,
+        p.id AS owner_id,
+        p.username,
+        p.display_name,
+        p.profile_title,
+        p.avatar_url
+      FROM sessions s
+      CROSS JOIN profile p
+      WHERE s.token_hash = $1
+        AND s.expires_at > CURRENT_TIMESTAMP
+      LIMIT 1;
     `;
-    return await pool.query(sql, [tokenHash]);
+    try {
+      return await pool.query(sql, [tokenHash]);
+    } catch (err) {
+      console.error(
+        "[auth.service.findSessionByTokenHash] Database query failed",
+        err,
+      );
+      throw err;
+    }
   },
 
-  async revokeRefreshTokenById(id: string) {
+  async deleteSessionByTokenHash(tokenHash: string) {
     const sql = `
-      UPDATE refresh_tokens 
-      SET is_revoked = true 
-      WHERE id = $1 
+      DELETE FROM sessions
+      WHERE token_hash = $1
       RETURNING id;
     `;
-    return await pool.query(sql, [id]);
+    try {
+      return await pool.query(sql, [tokenHash]);
+    } catch (err) {
+      console.error(
+        "[auth.service.deleteSessionByTokenHash] Database delete failed",
+        err,
+      );
+      throw err;
+    }
   },
 
-  async revokeRefreshTokenByHash(tokenHash: string) {
+  async deleteAllSessions() {
     const sql = `
-      UPDATE refresh_tokens 
-      SET is_revoked = true 
-      WHERE token_hash = $1 
+      DELETE FROM sessions
       RETURNING id;
     `;
-    return await pool.query(sql, [tokenHash]);
+    try {
+      return await pool.query(sql);
+    } catch (err) {
+      console.error(
+        "[auth.service.deleteAllSessions] Database delete failed",
+        err,
+      );
+      throw err;
+    }
   },
 
-  async revokeEntireTokenFamily(userId: string) {
+  async deleteExpiredSessions() {
     const sql = `
-      UPDATE refresh_tokens 
-      SET is_revoked = true 
-      WHERE user_id = $1 AND is_revoked = false
+      DELETE FROM sessions
+      WHERE expires_at <= CURRENT_TIMESTAMP
       RETURNING id;
     `;
-    return await pool.query(sql, [userId]);
+    try {
+      return await pool.query(sql);
+    } catch (err) {
+      console.error(
+        "[auth.service.deleteExpiredSessions] Database delete failed",
+        err,
+      );
+      throw err;
+    }
   },
 
-  async deleteAllUserRefreshTokens(userId: string) {
+  async updateProfile(
+    username: string | null,
+    displayName: string | null,
+    profileTitle: string | null,
+    avatarUrl: string | null,
+    avatarUrlProvided: boolean,
+  ) {
     const sql = `
-      DELETE FROM refresh_tokens 
-      WHERE user_id = $1 
-      RETURNING id;
+      UPDATE profile
+      SET
+        username = COALESCE($1, username),
+        display_name = COALESCE($2, display_name),
+        profile_title = COALESCE($3, profile_title),
+        avatar_url = CASE WHEN $4::boolean THEN $5 ELSE avatar_url END,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING id, username, display_name, profile_title, avatar_url, created_at, updated_at;
     `;
-    return await pool.query(sql, [userId]);
+    try {
+      return await pool.query(sql, [
+        username,
+        displayName,
+        profileTitle,
+        avatarUrlProvided,
+        avatarUrl,
+      ]);
+    } catch (err) {
+      console.error("[auth.service.updateProfile] Database update failed", err);
+      throw err;
+    }
   },
 
-  async deleteExpiredRefreshTokens() {
+  async updatePassword(passwordHash: string) {
     const sql = `
-      DELETE FROM refresh_tokens 
-      WHERE expires_at < CURRENT_TIMESTAMP 
+      UPDATE profile
+      SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
       RETURNING id;
     `;
-    return await pool.query(sql);
+    try {
+      return await pool.query(sql, [passwordHash]);
+    } catch (err) {
+      console.error(
+        "[auth.service.updatePassword] Database update failed",
+        err,
+      );
+      throw err;
+    }
   },
 };

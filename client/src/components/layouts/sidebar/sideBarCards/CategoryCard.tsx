@@ -10,6 +10,7 @@ import {
   Dna,
   Files,
   FlaskConical,
+  Book,
   Star,
   Shapes,
   AlertTriangle,
@@ -21,11 +22,6 @@ import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 export default function CategoryCard() {
   const pathname = usePathname();
 
-  const {
-    data: allData,
-    isLoading: lAll,
-    isError: eAll,
-  } = useGetFilteredPostsQuery({});
   const {
     data: csData,
     isLoading: lCs,
@@ -53,21 +49,28 @@ export default function CategoryCard() {
     data: projRandomData,
     isLoading: lProjR,
     isError: eProjR,
-  } = useGetFilteredPostsQuery({ category: "projects", subcategory: "random" });
+  } = useGetFilteredPostsQuery({
+    category: "projects",
+    subcategory: "random",
+  });
 
-  const isLoading = lAll || lCs || lBio || lDiary || lProjS || lProjR;
-  const isError = eAll || eCs || eBio || eDiary || eProjS || eProjR;
+  const isLoading = lCs || lBio || lDiary || lProjS || lProjR;
+  const isError = eCs || eBio || eDiary || eProjS || eProjR;
 
+  const csCount = csData?.total || 0;
+  const bioCount = bioData?.total || 0;
+  const diaryCount = diaryData?.total || 0;
   const projSeriousCount = projSeriousData?.total || 0;
   const projRandomCount = projRandomData?.total || 0;
   const projTotal = projSeriousCount + projRandomCount;
+  const allTotal = csCount + bioCount + diaryCount + projTotal;
 
   const categories = [
     {
       title: "All posts",
       icon: Files,
       href: "/posts/all-posts",
-      count: allData?.total || 0,
+      count: allTotal,
       detail: "simple",
     },
     {
@@ -84,21 +87,21 @@ export default function CategoryCard() {
       title: "Computer Science",
       icon: Monitor,
       href: "/posts/computer-science",
-      count: csData?.total || 0,
+      count: csCount,
       detail: "simple",
     },
     {
       title: "Bio-engineering",
       icon: Dna,
       href: "/posts/bio-engineering",
-      count: bioData?.total || 0,
+      count: bioCount,
       detail: "simple",
     },
     {
       title: "Diary",
-      icon: Dna,
+      icon: Book,
       href: "/posts/diary",
-      count: diaryData?.total || 0,
+      count: diaryCount,
       detail: "simple",
     },
   ];
@@ -106,15 +109,16 @@ export default function CategoryCard() {
   return (
     <div className="flex flex-col gap-3">
       {categories.map((cat, i) => {
-        const isActive = pathname === cat.href;
+        const isActive =
+          pathname === cat.href || pathname.startsWith(`${cat.href}/`);
 
         return (
           <Link
             href={cat.href}
             key={i}
             className={cn(
-              "relative border-3 border-double hover:bg-card/70  transition-all duration-300 p-3 flex flex-col gap-3 ",
-              isActive && "bg-card  ",
+              "relative border-3 border-double hover:bg-card/70 transition-all duration-300 p-3 flex flex-col gap-3",
+              isActive && "bg-card",
             )}
           >
             <CornerFlourish className="-top-1 -left-1 rotate-0" />
@@ -122,7 +126,7 @@ export default function CategoryCard() {
             <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
             <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
             <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
-            <div className="flex gap-1 items-center  text-primary ">
+            <div className="flex gap-1 items-center text-primary">
               <cat.icon className="h-5 w-5" />
               <h3>{cat.title}</h3>
             </div>
@@ -171,7 +175,7 @@ export default function CategoryCard() {
               variant="outline"
               className="border-3 border-double rounded-none w-full pointer-events-none"
             >
-              <span>Enter Room</span>
+              <span>{isActive ? "Already In" : "Enter Room"}</span>
             </Button>
           </Link>
         );

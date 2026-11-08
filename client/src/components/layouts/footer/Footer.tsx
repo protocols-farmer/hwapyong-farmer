@@ -1,9 +1,11 @@
 // src/components/layouts/footer/Footer.tsx
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSelector } from "react-redux";
+import { selectIsAuthenticated } from "@/lib/features/auth/authSlice";
 import { cn } from "@/lib/utils";
 import Logo from "@/components/shared/Logo";
 import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
@@ -11,10 +13,20 @@ import { navLinks } from "../../shared/navLinks";
 
 export default function Footer() {
   const pathname = usePathname();
+  const isAuthenticated = useSelector(selectIsAuthenticated);
+  const [mounted, setMounted] = useState(false);
   const currentYear = new Date().getFullYear();
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const visibleLinks = navLinks.filter(
+    (link) => !link.ownerOnly || (mounted && isAuthenticated),
+  );
+
   return (
-    <footer className="border-t-3 border-double p-3 lg:p-6 bg-background flex flex-col gap-6 mb-[100px]">
+    <footer className="border-t-3 border-double p-3 pb-24 lg:p-6 flex flex-col gap-6">
       <div className="grid gap-6 md:grid-cols-4">
         {/* BRANDING */}
         <div className="relative border-3 border-double p-3 flex flex-col gap-3">
@@ -36,7 +48,7 @@ export default function Footer() {
           </div>
 
           <nav className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {navLinks.map((link) => {
+            {visibleLinks.map((link) => {
               const isActive = pathname === link.href;
               return (
                 <Link
@@ -83,13 +95,13 @@ export default function Footer() {
 
         <div className="flex gap-4">
           <Link
-            href="privacy"
+            href="/privacy"
             className="text-sm hover:text-primary transition-colors"
           >
             Privacy Policy
           </Link>
           <Link
-            href="terms"
+            href="/terms"
             className="text-sm hover:text-primary transition-colors"
           >
             Terms of Service

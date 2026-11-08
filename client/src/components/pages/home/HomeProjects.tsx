@@ -2,9 +2,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { cn } from "@/lib/utils";
 import PostCard from "@/components/pages/posts/PostCard";
-import { useGetSuperAdminSeriousProjectsQuery } from "@/lib/features/posts/postsApiSlice";
+import { useGetFilteredPostsQuery } from "@/lib/features/posts/postsApiSlice";
 import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
 import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
 
@@ -51,8 +50,11 @@ const CardSkeleton = () => (
 export default function HomeProjects() {
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, isFetching } =
-    useGetSuperAdminSeriousProjectsQuery(page);
+  const { data, isLoading, isFetching } = useGetFilteredPostsQuery({
+    category: "projects",
+    subcategory: "serious",
+    page,
+  });
   const seriousProjects = data?.posts || [];
 
   return (
@@ -68,7 +70,7 @@ export default function HomeProjects() {
         </h4>
       </div>
 
-      <p className="border-l-3 border-double pl-3  font-bold">
+      <p className="border-l-3 border-double pl-3 font-bold">
         My most serious projects
       </p>
 

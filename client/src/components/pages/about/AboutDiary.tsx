@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
 import PostCard from "@/components/pages/posts/PostCard";
-import { useGetSuperAdminDiaryQuery } from "@/lib/features/posts/postsApiSlice";
+import { useGetFilteredPostsQuery } from "@/lib/features/posts/postsApiSlice";
 
 const CardSkeleton = () => (
   <div className="relative border-3 border-double bg-card flex flex-col gap-3 p-3 justify-between h-full animate-pulse">
@@ -44,7 +44,10 @@ const CardSkeleton = () => (
 
 export default function AboutDiary() {
   const [page, setPage] = useState(1);
-  const { data, isLoading, isFetching } = useGetSuperAdminDiaryQuery(page);
+  const { data, isLoading, isFetching } = useGetFilteredPostsQuery({
+    category: "diary",
+    page,
+  });
   const diaryEntries = data?.posts || [];
 
   return (
@@ -60,7 +63,7 @@ export default function AboutDiary() {
         </h4>
       </div>
 
-      <p className="border-l-3 border-double pl-3  font-bold">
+      <p className="border-l-3 border-double pl-3 font-bold">
         Personal journals and unfiltered thoughts.
       </p>
 

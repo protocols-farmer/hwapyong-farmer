@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import BioAndSkills from "./BioAndSkills";
 import HomeAbout from "./HomeAbout";
 import HomeProjects from "./HomeProjects";
-import MotivationsAndRejections from "./MotivationsAndRejections";
+import HomeMotivationsAndRejections from "./HomeMotivationsAndRejections";
 
 // Sepia + grain wash so the portrait reads as "aged" rather than a flat
 // filter — same texture trick used on the header photos.
@@ -72,13 +72,11 @@ function OvalFrame({
 
 function HomeHero() {
   return (
-    <section className="relative flex min-h-screen flex-col gap-6 border-3 border-double border-primary p-3 lg:p-6">
+    <section className="ornate-frame relative flex min-h-screen flex-col gap-6 border-3 border-double border-primary p-3 lg:p-6">
       <OrnateVictoria className="-top-1 -left-1" />
       <OrnateVictoria className="-top-1 -right-1 rotate-90" />
       <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
       <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
-      <BorderCenterpiece className="absolute top-0 left-1/2 z-20 h-auto w-32 -translate-x-1/2 -translate-y-[60%] sm:w-40 md:w-44" />
-      <BorderCenterpiece className="absolute bottom-0 left-1/2 z-20 h-auto w-32 translate-y-[60%] rotate-180 -translate-x-1/2 sm:w-40 md:w-44" />
 
       <div className="flex flex-col items-center gap-6 md:flex-row md:gap-10">
         <div className="order-2 text-center md:order-none md:text-left">
@@ -88,22 +86,22 @@ function HomeHero() {
           <p className="mt-3 text-muted-foreground">
             Hi, my name is Hwapyong M. Edouard. Am a backend developer. I
             created this website to show what am i worked on and what i am
-            working on. I hope you enjoy your time here and find something
-            interesting. I am always open to new ideas and collaborations, so
-            feel free to reach out if you have any questions or suggestions.
+            working on. I am always open to new ideas and collaborations, so
+            feel free to reach out if you have any questions or suggestions. I
+            hope you enjoy your time here and find something interesting
           </p>
         </div>
         <OvalFrame
-          src="/m2.jpg"
+          src="/biooid.jpeg"
           alt="Portrait"
-          className="order-1 w-40 shrink-0 -rotate-2 sm:w-64 md:order-none md:w-80"
+          className="order-1 w-40 shrink-0 -rotate-2 sm:w-64 md:order-0 md:w-80"
         />
       </div>
 
       <BioAndSkills />
       <HomeAbout />
       <HomeProjects />
-      <MotivationsAndRejections />
+      <HomeMotivationsAndRejections />
     </section>
   );
 }

@@ -23,8 +23,8 @@ interface FilterSectionProps {
   sortOrder?: "ASC" | "DESC";
   setSortOrder?: (value: "ASC" | "DESC") => void;
   clearAllFilters?: () => void;
-  isTagsLoading?: boolean; // <-- NEW
-  isTagsError?: boolean; // <-- NEW
+  isTagsLoading?: boolean;
+  isTagsError?: boolean;
 }
 
 export default function FilterSection({
@@ -45,8 +45,8 @@ export default function FilterSection({
   sortOrder = "DESC",
   setSortOrder,
   clearAllFilters,
-  isTagsLoading, // <-- NEW
-  isTagsError, // <-- NEW
+  isTagsLoading,
+  isTagsError,
 }: FilterSectionProps) {
   const [localSearch, setLocalSearch] = useState(searchQuery);
 
@@ -62,11 +62,15 @@ export default function FilterSection({
     setLocalSearch(searchQuery);
   }, [searchQuery]);
 
+  const hasCategoryFilter = Boolean(
+    selectedCategory && selectedCategory !== "all",
+  );
+
   const hasActiveFilters =
-    searchQuery ||
+    Boolean(searchQuery) ||
     selectedTags.length > 0 ||
-    selectedCategory ||
-    selectedSubcategory ||
+    hasCategoryFilter ||
+    Boolean(selectedSubcategory) ||
     sortBy !== "date" ||
     sortOrder !== "DESC";
 
@@ -122,7 +126,7 @@ export default function FilterSection({
                 {b}
               </button>
             ))}
-            <div className=" bg-primary self-center" />
+            <div className="bg-primary self-center" />
             {["ASC", "DESC"].map((o) => (
               <button
                 key={o}

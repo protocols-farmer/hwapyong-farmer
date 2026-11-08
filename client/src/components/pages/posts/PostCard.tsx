@@ -7,8 +7,9 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
-import { Post } from "@/lib/features/posts/postsTypes";
+import type { PostCard as PostCardType } from "@/lib/features/posts/postsTypes";
 import { CornerFlourish } from "@/components/shared/flourishes/CornerFlourish";
+import { Star } from "lucide-react";
 
 const SmartImage = ({
   src,
@@ -80,15 +81,23 @@ const SmartImage = ({
   );
 };
 
-export default function PostCard({ post }: { post: Post }) {
+export default function PostCard({
+  post,
+  showEditButton = false,
+}: {
+  post: PostCardType;
+  showEditButton?: boolean;
+}) {
   const visibleTags = post.tags?.slice(0, 3) || [];
   const remainingTags = (post.tags?.length || 0) - 3;
 
-  const AUTHOR_NAME = post.author_name || "protocols_farmer";
+  const AUTHOR_NAME = post.author_name || "Owner";
   const AUTHOR_TITLE = post.author_title || "Member";
   const AUTHOR_AVATAR =
     post.author_avatar ||
-    "https://res.cloudinary.com/dhr9zmb3i/image/upload/v1772941590/cat_kw8xmu.jpg";
+    "https://res.cloudinary.com/dhr9zmb3i/image/upload/v1782114895/avatar-fallback_jnzqae.jpg";
+
+  const postHref = `/posts/${post.category}/${post.slug || post.id}`;
 
   return (
     <div className="relative border-3 border-double flex flex-col gap-3 p-3 justify-between">
@@ -103,21 +112,32 @@ export default function PostCard({ post }: { post: Post }) {
           <SmartImage src={post.thumbnail} alt={post.title} isAvatar={false} />
         </div>
 
-        {/* Category + Subcategory (if exists) */}
+        {/* Category + Subcategory + Draft + Featured Badges */}
         <div className="flex items-center gap-1 flex-wrap">
-          <span className="bg-primary text-primary-foreground border-3 border-double font-bold p-1 w-fit text-sm">
+          <span className="bg-primary text-primary-foreground border-3 border-double font-bold p-1 w-fit text-xs">
             {post.category}
           </span>
           {post.subcategory && (
             <span
               className={cn(
-                "font-bold p-1 w-fit text-sm border-3 border-double",
+                "font-bold p-1 w-fit text-xs border-3 border-double",
                 post.subcategory === "serious"
                   ? "bg-primary text-primary-foreground"
                   : "border-primary text-primary",
               )}
             >
               {post.subcategory}
+            </span>
+          )}
+          {!post.is_published && (
+            <span className="border-3 border-double border-destructive bg-destructive text-destructive-foreground font-bold p-1 w-fit text-xs">
+              Draft
+            </span>
+          )}
+          {post.featured && (
+            <span className="border-3 border-double border-primary bg-primary/10 text-primary font-bold p-1 w-fit text-xs flex items-center gap-1">
+              <Star className="h-3 w-3" />
+              Featured
             </span>
           )}
         </div>
@@ -128,7 +148,6 @@ export default function PostCard({ post }: { post: Post }) {
           <p className="text-sm font-bold line-clamp-2">
             {post.short_description}
           </p>
-          <p className="text-sm line-clamp-3">{post.main_content}</p>
         </div>
       </div>
 
@@ -163,26 +182,36 @@ export default function PostCard({ post }: { post: Post }) {
           {visibleTags.map((tag: string) => (
             <span
               key={tag}
-              className="border-3 border-double bg-background p-1 text-sm"
+              className="border-3 border-double bg-background p-1 text-xs font-bold"
             >
               #{tag}
             </span>
           ))}
           {remainingTags > 0 && (
-            <span className="border-3 border-double p-1 text-sm font-bold bg-primary text-primary-foreground">
+            <span className="border-3 border-double p-1 text-xs font-bold bg-primary text-primary-foreground">
               +{remainingTags}
             </span>
           )}
         </div>
-        <div>
-          <Button asChild className="w-full rounded-none ">
-            <Link
-              href={`/posts/${post.category}/${post.id}`}
-              className="w-full font-bold"
-            >
+
+        <div className="flex gap-2">
+          <Button
+            asChild
+            className="flex-1 rounded-none border-3 border-double"
+          >
+            <Link href={postHref} className="w-full font-bold">
               See {post.category}
             </Link>
           </Button>
+          {showEditButton && (
+            <Button
+              asChild
+              variant="outline"
+              className="rounded-none border-3 border-double font-bold"
+            >
+              <Link href={`/posts/update-post/${post.id}`}>Edit</Link>
+            </Button>
+          )}
         </div>
       </div>
     </div>

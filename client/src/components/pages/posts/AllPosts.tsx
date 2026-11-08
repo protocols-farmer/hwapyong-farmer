@@ -11,9 +11,11 @@ import {
   useGetAllTagsQuery,
 } from "@/lib/features/posts/postsApiSlice";
 import FilterSection from "./FilterSection";
+import { OrnateVictoria } from "@/components/shared/flourishes/OrnateVictoria";
+import { BorderCenterpiece } from "@/components/shared/flourishes/BorderCenterpiece";
 
 const CardSkeleton = () => (
-  <div className="border-3 border-double bg-card flex flex-col gap-3 p-3 justify-between animate-pulse">
+  <div className="border-3 border-double bg-card/50 flex flex-col gap-3 p-3 justify-between animate-pulse">
     <div className="flex flex-col gap-3">
       <div className="relative aspect-video border-3 border-double bg-background flex items-center justify-center">
         <span className="text-xs font-bold">Loading...</span>
@@ -153,6 +155,7 @@ export default function AllPosts() {
 
   const isPageLoading = isLoading || isFetching;
   const posts = activeData?.posts || [];
+  const totalPosts = activeData?.total ?? posts.length;
   const allAvailableTags = globalTagsData?.tags || [];
 
   const allCategories = [
@@ -164,18 +167,20 @@ export default function AllPosts() {
   ];
 
   return (
-    <section className="p-3 lg:p-6 min-h-screen flex flex-col gap-6 bg-background text-foreground">
-      <header className="relative border-3 border-double p-3 flex flex-col gap-3">
-        <CornerFlourish className="-top-1 -left-1" />
-        <CornerFlourish className="-top-1 -right-1 rotate-90" />
-        <CornerFlourish className="-bottom-1 -left-1 -rotate-90" />
-        <CornerFlourish className="-bottom-1 -right-1 rotate-180" />
+    <section className="p-3 relative border-3 border-double lg:p-6 min-h-screen flex flex-col gap-6 bg-background text-foreground">
+      <OrnateVictoria className="-top-1 -left-1" />
+      <OrnateVictoria className="-top-1 -right-1 rotate-90" />
+      <OrnateVictoria className="-bottom-1 -left-1 -rotate-90" />
+      <OrnateVictoria className="-bottom-1 -right-1 rotate-180" />
 
+      <BorderCenterpiece className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-[60%] w-44 h-auto z-20" />
+      <BorderCenterpiece className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-[60%] w-44 h-auto rotate-180 z-20" />
+      <header className="relative border-3 border-double p-3 flex flex-col gap-3">
         <h4 className="bg-primary text-primary-foreground font-bold p-1 w-fit">
           All Posts :
         </h4>
-        <p className="border-l-3 border-double pl-3">
-          Every article and projects across all rooms.
+        <p className="border-l-3 border-double pl-3 text-xs font-bold">
+          Every article and project across all rooms.
         </p>
       </header>
 
@@ -210,6 +215,14 @@ export default function AllPosts() {
         </div>
       ) : (
         <>
+          {!isPageLoading && (
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold border-3 border-double px-2 py-1">
+                {totalPosts} {totalPosts === 1 ? "post" : "posts"}
+              </span>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {isPageLoading
               ? Array.from({ length: 6 }).map((_, i) => (
